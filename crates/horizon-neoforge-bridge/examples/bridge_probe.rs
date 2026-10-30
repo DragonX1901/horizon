@@ -173,7 +173,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             Ok(_) => {}
-            Err(e) => println!("DECODE FAILED {name}: {e}"),
+            Err(e) => {
+                println!("DECODE FAILED {name}: {e}");
+                if std::env::var_os("PROBE_DUMP").is_some() {
+                    let hex: String = body.iter().map(|b| format!("{b:02x}")).collect();
+                    println!("  {} bytes: {hex}", body.len());
+                }
+            }
         }
     }
     println!("play packets: {seen:?}");

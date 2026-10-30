@@ -100,8 +100,14 @@ fn start_server(options: &HostOptions) -> std::io::Result<(Child, u16)> {
     Ok((child, port))
 }
 
-/// Wait for the server's "Done (…)!" line, then echo its log to stderr.
-fn wait_until_ready(child: &mut Child) -> std::io::Result<()> {
+/// Wait for the server's "Done (…)!" line, then echo its log to stderr and
+/// make `owner` an operator when they join: an offline-mode server resolves a
+/// name to its player only while they are online.
+fn wait_until_ready(
+    child: &mut Child,
+    owner: Option<String>,
+    stdin: Arc<Mutex<ChildStdin>>,
+) -> std::io::Result<()> {
     let stdout = child
         .stdout
         .take()
@@ -112,8 +118,14 @@ fn wait_until_ready(child: &mut Child) -> std::io::Result<()> {
         eprintln!("[server] {line}");
         if line.contains("]: Done (") {
             std::thread::spawn(move || {
+                let joined = owner.as_ref().map(|o| format!("]: {o} joined the game"));
                 for line in lines.map_while(Result::ok) {
                     eprintln!("[server] {line}");
+                    if let (Some(owner), Some(joined)) = (&owner, &joined)
+                        && line.contains(joined.as_str())
+                    {
+                        console(&stdin, &format!("op {owner}"));
+                    }
                 }
             });
             return Ok(());
@@ -166,10 +178,7 @@ pub fn run(options: HostOptions) -> std::io::Result<()> {
             .take()
             .ok_or_else(|| std::io::Error::other("no server stdin"))?,
     ));
-    wait_until_ready(&mut child)?;
-    if let Some(owner) = &options.owner {
-        console(&server_stdin, &format!("op {owner}"));
-    }
+    wait_until_ready(&mut child, options.owner.clone(), server_stdin.clone())?;
     // The owner's listener lets one player in, whoever else is playing: a second
     // login there is refused until LAN is open, and LAN players join on their own.
     let owner_bridge = Options {

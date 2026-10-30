@@ -23,7 +23,6 @@ const SAME_CLIENTBOUND: &[&str] = &[
     "chunk_batch_start",
     "chunk_batch_finished",
     "forget_level_chunk",
-    "light_update",
     "game_event",
     "set_health",
     "set_experience",
@@ -226,6 +225,11 @@ impl Play {
                 C777::Respawn(p777::Respawn { spawn, keep })
             }
             cb::LEVEL_CHUNK_WITH_LIGHT => C777::LevelChunkWithLight(self.chunk(&mut r)?),
+            cb::LIGHT_UPDATE => C777::LightUpdate(p777::LightUpdate {
+                x: r.varint()?,
+                z: r.varint()?,
+                light: light_767(&mut r)?,
+            }),
             cb::BLOCK_UPDATE => {
                 let pos = unpack_pos(r.i64()?);
                 let state = self.ctx.states.map(r.varint()?);
@@ -599,7 +603,7 @@ impl Play {
                 });
             }
         }
-        let light = LightData::read(r)?;
+        let light = light_767(r)?;
         let mut sections = Vec::with_capacity(self.sections);
         let mut b = Reader::new(&buffer);
         for _ in 0..self.sections {
@@ -1036,6 +1040,32 @@ fn read_767(r: &mut Reader, strategy: Strategy, global_bits: u8) -> Result<Vec<i
         .collect())
 }
 
+/// 767 light data: its four masks are `BitSet`s written as long arrays, which
+/// 26.x writes as `BitSet.toByteArray` (little-endian bytes, trailing zeros
+/// dropped); the sky and block layers are the same.
+fn light_767(r: &mut Reader) -> Result<LightData> {
+    let mask = |r: &mut Reader| -> Result<Vec<u8>> {
+        let longs = r.count(r.remaining() / 8)?;
+        let mut bytes = Vec::with_capacity(longs * 8);
+        for _ in 0..longs {
+            bytes.extend_from_slice(&r.i64()?.to_le_bytes());
+        }
+        let len = bytes.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+        bytes.truncate(len);
+        Ok(bytes)
+    };
+    let (sky_mask, block_mask) = (mask(r)?, mask(r)?);
+    let (empty_sky_mask, empty_block_mask) = (mask(r)?, mask(r)?);
+    Ok(LightData {
+        sky_mask,
+        block_mask,
+        empty_sky_mask,
+        empty_block_mask,
+        sky: horizon_protocol::chunk::Layers::read(r)?,
+        block: horizon_protocol::chunk::Layers::read(r)?,
+    })
+}
+
 /// 767 heightmaps (an NBT compound of long arrays by type name) as 777's (type id, longs).
 fn heightmaps(tag: &Tag) -> Vec<(i32, Vec<i64>)> {
     const TYPES: [&str; 6] = [
@@ -1099,6 +1129,22 @@ mod tests {
         }
         let s = (5i64 & 0x3F_FFFF) << 42 | (-3i64 & 0x3F_FFFF) << 20 | (-4i64 & 0xF_FFFF);
         assert_eq!(unpack_section(s), [5, -4, -3]);
+    }
+
+    #[test]
+    fn light_masks_become_byte_arrays() {
+        let mut w = Writer::new();
+        // block mask: one long with bit 4 (0x10); the other masks empty; no layers.
+        w.varint(0);
+        w.varint(1);
+        w.i64(0x10);
+        w.varint(0);
+        w.varint(0);
+        w.varint(0);
+        w.varint(0);
+        let light = light_767(&mut Reader::new(&w.data)).unwrap();
+        assert_eq!(light.block_mask, vec![0x10]);
+        assert!(light.sky_mask.is_empty());
     }
 
     #[test]
