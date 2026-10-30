@@ -205,11 +205,15 @@ impl Game<'_> {
     /// `Minecraft.hasSingleplayerServer`: a world of this window's own, run
     /// in the frame or on its server thread.
     pub(super) fn has_singleplayer_server(&self) -> bool {
-        self.remote.is_none() || self.integrated.is_some()
+        self.remote.is_none() || self.integrated.is_some() || self.modded.is_some()
     }
     /// `IntegratedServer.isPublished`: the world is open to the network.
     pub(super) fn is_published(&self) -> bool {
         self.lan.is_some()
+            || self
+                .modded
+                .as_ref()
+                .is_some_and(|m| m.published().is_some())
             || self
                 .integrated
                 .as_ref()

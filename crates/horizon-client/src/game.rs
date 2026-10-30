@@ -151,6 +151,7 @@ mod minecarts;
 mod mob_blocks;
 mod mob_gear;
 mod mob_sounds;
+mod modded;
 mod mods;
 mod mount_menu;
 mod mounts;
@@ -2131,6 +2132,8 @@ struct Game<'a> {
     lan: Option<lan::LanHost>,
     /// Single player's server thread, which `remote` is connected to.
     integrated: Option<integrated::Integrated>,
+    /// A modded world's NeoForge server (`game/modded.rs`), while one is open.
+    modded: Option<modded::ModdedHost>,
     /// The shapes of the open world's levels, from its dimension types.
     level_shapes: horizon_client::chunk::LevelShapes,
     /// This game is that server thread's (game/integrated.rs).
@@ -9838,6 +9841,16 @@ impl Game<'_> {
             }
             let _ = std::fs::remove_dir_all(dir);
         }
+        let world_dir = std::env::current_dir()?.join("saves").join(folder);
+        if let Some(server) = modded::server_dir(&world_dir) {
+            let shown = name.unwrap_or(folder).to_owned();
+            let (host, port) =
+                modded::ModdedHost::start(&server, &world_dir, &self.options.resources, &shown)?;
+            let player = self.options.player_name();
+            self.join_server(&format!("127.0.0.1:{port}"), &player, None, None)?;
+            self.modded = Some(host);
+            return Ok(());
+        }
         if self
             .options
             .execution_role
@@ -14630,6 +14643,9 @@ impl ApplicationHandler for Game<'_> {
                     }
                     self.limit_frame();
                     self.pause = self.pauses_game();
+                    if let Some(host) = &mut self.modded {
+                        host.set_paused(self.pause);
+                    }
                     if let Some(server) = &self.integrated {
                         server.set_paused(self.pause);
                         server.set_distances(
@@ -15182,6 +15198,7 @@ impl<'a> Game<'a> {
             remote: None,
             lan: None,
             integrated: None,
+            modded: None,
             level_shapes: Default::default(),
             serving: None,
             world_options: None,

@@ -381,7 +381,7 @@ impl Game<'_> {
     ) -> Result<()> {
         self.join_server("local", name, Some(pipe), None)
     }
-    fn join_server(
+    pub(super) fn join_server(
         &mut self,
         address: &str,
         name: &str,
@@ -638,7 +638,8 @@ impl Game<'_> {
                 server.stop()?;
                 true
             }
-            None => false,
+            // Dropping a modded world's host saves it and stops its server.
+            None => self.modded.take().is_some(),
         };
         horizon_client::crash::clear_detail("Server");
         self.clock = Default::default();

@@ -1116,7 +1116,10 @@ impl Game<'_> {
     }
 
     pub(super) fn lan_open(&mut self, settings: LanSettings) -> Result<()> {
-        let port = if let Some(server) = &self.integrated {
+        let port = if let Some(host) = &mut self.modded {
+            // A modded world opens through its bridge; the server stays on loopback.
+            host.publish()?
+        } else if let Some(server) = &self.integrated {
             // ShareToLanScreen: IntegratedServer.publishServer.
             server
                 .call(move |g| g.publish(settings))
