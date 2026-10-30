@@ -63,7 +63,11 @@ impl ChunkFormat {
     fn column(&self, p: &play::LevelChunkWithLight) -> Result<Chunk, String> {
         let sections = p
             .chunk
-            .sections(self.sections, 16, self.biome_bits)
+            .sections(
+                self.sections,
+                horizon_client::chunk::block_bits(),
+                self.biome_bits,
+            )
             .map_err(|e| e.to_string())?;
         let mut chunk = Chunk::with_layout(p.x, p.z, self.column);
         let offset = (self.min_y - self.column.min_y()).div_euclid(16);

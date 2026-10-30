@@ -219,6 +219,12 @@ pub const BIOME_STRATEGY: Strategy = Strategy::biomes(7);
 /// past 65,536 (docs/modpacks.md). Set once, before the first chunk.
 static BLOCK_BITS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(16);
 
+/// The block states' global palette width: what a server with the same
+/// content mods writes direct sections with (16 for vanilla).
+pub fn block_bits() -> u8 {
+    BLOCK_BITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Block states are `PalettedContainer`s over the registry: vanilla's 16-bit
 /// global palette, wider with enough content mods.
 pub fn block_strategy() -> Strategy {
