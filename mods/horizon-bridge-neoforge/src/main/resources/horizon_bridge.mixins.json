@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.horizonlab.bridge.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["NetworkRegistryMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

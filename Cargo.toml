@@ -26,6 +26,7 @@ members = [
     "crates/horizon-mods",
     "crates/cargo-horizon-mod",
     "crates/horizon-port-pack",
+    "crates/horizon-neoforge-bridge",
     "crates/horizon-shaders",
     "crates/horizon-shader-api",
     "crates/horizon-release-sign",

@@ -1290,6 +1290,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-neoforge-bridge"
+version = "0.1.0"
+dependencies = [
+ "horizon-protocol",
+ "horizon-world",
+ "serde_json",
+]
+
+[[package]]
 name = "horizon-port-pack"
 version = "0.1.0"
 dependencies = [

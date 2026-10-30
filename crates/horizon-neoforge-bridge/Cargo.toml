@@ -1,0 +1,19 @@
+[package]
+name = "horizon-neoforge-bridge"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Bridge between the Horizon client (protocol 777) and a NeoForge 1.21.1 server (protocol 767): NeoForge's network negotiation, registry sync capture and packet translation"
+
+[dependencies]
+horizon-protocol = { path = "../horizon-protocol" }
+horizon-world = { path = "../horizon-world" }
+serde_json = "1.0.151"
+
+[[bin]]
+name = "horizon-neoforge-bridge"
+path = "src/main.rs"
+
+[lints]
+workspace = true

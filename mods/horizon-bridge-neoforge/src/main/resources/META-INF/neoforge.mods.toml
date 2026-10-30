@@ -1,0 +1,26 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "horizon_bridge"
+version = "0.1.0"
+displayName = "Horizon Bridge"
+description = "Lets Horizon players join this server through horizon-neoforge-bridge. Server side only; clients do not need it."
+
+[[mixins]]
+config = "horizon_bridge.mixins.json"
+
+[[dependencies.horizon_bridge]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,21.2)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.horizon_bridge]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
