@@ -98,7 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 continue;
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                println!("play packets: {seen:?}");
+                return Err(e.into());
+            }
         };
         let name = horizon_protocol::ids::play::clientbound::NAMES[id as usize];
         *seen.entry(name).or_default() += 1;

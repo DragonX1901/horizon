@@ -654,6 +654,25 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         menus: remap("minecraft:menu"),
         components: remap("minecraft:data_component_type"),
         blocks: remap("minecraft:block"),
+        effects: remap("minecraft:mob_effect"),
+        attributes: remap("minecraft:attribute"),
+        particles: state
+            .facts
+            .frozen
+            .get("minecraft:particle_type")
+            .map(|server| {
+                server
+                    .ids
+                    .iter()
+                    .filter_map(|(&id, name)| {
+                        Some((
+                            id,
+                            (client_id("minecraft:particle_type", name)?, name.clone()),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         sounds: state
             .facts
             .frozen

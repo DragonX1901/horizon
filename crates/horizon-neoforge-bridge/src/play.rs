@@ -56,6 +56,9 @@ const SAME_CLIENTBOUND: &[&str] = &[
     "hurt_animation",
     "set_entity_link",
     "set_passengers",
+    "player_info_update",
+    "player_info_remove",
+    "boss_event",
 ];
 /// Serverbound packets whose 777 and 767 bodies are the same (the move packets'
 /// flags byte reads as 767's on-ground boolean: any non-zero byte is true).
@@ -107,6 +110,11 @@ pub struct Context {
     pub sounds: HashMap<i32, std::result::Result<i32, String>>,
     /// Blocks (the registry, not states): server id → client id.
     pub blocks: HashMap<i32, i32>,
+    /// Mob effects and attributes: server id → client id.
+    pub effects: HashMap<i32, i32>,
+    pub attributes: HashMap<i32, i32>,
+    /// Particle types: server id → (client id, name).
+    pub particles: HashMap<i32, (i32, String)>,
     /// Data component types: server id → client id.
     pub components: HashMap<i32, i32>,
     /// The client's item for server items it lacks.
@@ -485,6 +493,71 @@ impl Play {
                     tag: r.nbt()?,
                 })
             }
+            cb::UPDATE_MOB_EFFECT => {
+                let id = r.varint()?;
+                let Some(&effect) = self.ctx.effects.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                C777::UpdateMobEffect(p777::UpdateMobEffect {
+                    id,
+                    effect,
+                    amplifier: r.varint()?,
+                    duration: r.varint()?,
+                    flags: r.i8()?,
+                })
+            }
+            cb::REMOVE_MOB_EFFECT => {
+                let id = r.varint()?;
+                let Some(&effect) = self.ctx.effects.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                C777::RemoveMobEffect(p777::RemoveMobEffect { id, effect })
+            }
+            cb::UPDATE_ATTRIBUTES => {
+                let id = r.varint()?;
+                let mut values = Vec::new();
+                for _ in 0..r.count(1 << 10)? {
+                    let attribute = r.varint()?;
+                    let base = r.f64()?;
+                    let modifiers = (0..r.count(1 << 10)?)
+                        .map(|_| {
+                            Ok(p777::AttributeModifier {
+                                id: r.string(32767)?,
+                                amount: r.f64()?,
+                                operation: i32::from(r.u8()?),
+                            })
+                        })
+                        .collect::<Result<_>>()?;
+                    if let Some(&attribute) = self.ctx.attributes.get(&attribute) {
+                        values.push(p777::AttributeSnapshot {
+                            attribute,
+                            base,
+                            modifiers,
+                        });
+                    }
+                }
+                C777::UpdateAttributes(p777::UpdateAttributes { id, values })
+            }
+            cb::LEVEL_PARTICLES => {
+                let override_limiter = r.bool()?;
+                let pos = [r.f64()?, r.f64()?, r.f64()?];
+                let dist = [r.f32()?, r.f32()?, r.f32()?];
+                let speed = r.f32()?;
+                let count = r.i32()?;
+                let Some(particle) = self.particle(&mut r)? else {
+                    return Ok(Vec::new());
+                };
+                C777::LevelParticles(p777::LevelParticles {
+                    particle,
+                    override_limiter,
+                    always_show: false,
+                    pos,
+                    dist,
+                    max_speed: [speed; 3],
+                    count,
+                    randomization: 0,
+                })
+            }
             cb::SET_TIME => {
                 let game_time = r.i64()?;
                 let day_time = r.i64()?;
@@ -565,6 +638,43 @@ impl Play {
             states: Paletted::from_values(&states, Strategy::Blocks, self.ctx.client_block_bits),
             biomes: Paletted::from_values(&biomes, Strategy::Biomes, ceil_log2(self.ctx.biomes)),
         })
+    }
+
+    /// A 767 particle (type, then its options), when the client has the type and
+    /// its options are ones 777 still encodes the same or that translate.
+    fn particle(&self, r: &mut Reader) -> Result<Option<horizon_protocol::entity_data::Particle>> {
+        use horizon_protocol::entity_data::{Particle, ParticleData};
+        let Some((id, name)) = self.ctx.particles.get(&r.varint()?) else {
+            return Ok(None);
+        };
+        let rgb = |r: &mut Reader| -> Result<i32> {
+            let c = |v: f32| ((v.clamp(0.0, 1.0) * 255.0).round() as i32) & 0xFF;
+            Ok(0xFF << 24 | c(r.f32()?) << 16 | c(r.f32()?) << 8 | c(r.f32()?))
+        };
+        let data = match name.as_str() {
+            "minecraft:block"
+            | "minecraft:block_marker"
+            | "minecraft:falling_dust"
+            | "minecraft:dust_pillar" => {
+                Some(ParticleData::State(self.ctx.states.map(r.varint()?)))
+            }
+            "minecraft:dust" => {
+                let color = rgb(r)?;
+                Some(ParticleData::ColorScale(color, r.f32()?))
+            }
+            "minecraft:dust_color_transition" => {
+                let (from, to) = (rgb(r)?, rgb(r)?);
+                Some(ParticleData::ColorScale2(from, to, r.f32()?))
+            }
+            "minecraft:entity_effect" => Some(ParticleData::Color(r.i32()?)),
+            "minecraft:sculk_charge" => Some(ParticleData::Scalar(r.f32()?)),
+            "minecraft:shriek" => Some(ParticleData::Delay(r.varint()?)),
+            // Item, vibration and every mod's particle with options: not yet.
+            "minecraft:item" | "minecraft:vibration" => return Ok(None),
+            n if !n.starts_with("minecraft:") => return Ok(None),
+            _ => None,
+        };
+        Ok(Some(Particle { id: *id, data }))
     }
 
     /// A sound holder: by the client's id, or inline by name for a sound the
