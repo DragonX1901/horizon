@@ -11,6 +11,7 @@
 //! negotiated and captured; play is not translated yet, so the client is shown
 //! what was captured and disconnected at the end of configuration.
 #![forbid(unsafe_code)]
+pub mod blocks;
 pub mod facts;
 pub mod ids_767;
 pub mod neoforge;
