@@ -9842,11 +9842,11 @@ impl Game<'_> {
             let _ = std::fs::remove_dir_all(dir);
         }
         let world_dir = std::env::current_dir()?.join("saves").join(folder);
-        if let Some(server) = modded::server_dir(&world_dir) {
+        if let Some(marker) = modded::marker(&world_dir) {
             let shown = name.unwrap_or(folder).to_owned();
             let player = self.options.player_name();
             let (host, port) = modded::ModdedHost::start(
-                &server,
+                &marker,
                 &world_dir,
                 &self.options.resources,
                 &shown,

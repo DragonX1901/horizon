@@ -1,6 +1,33 @@
 # NeoForge 1.21.1 bridge
 
-Goal: Horizon players join a **NeoForge 1.21.1** server running real Java mods. The mods' logic
+Goal: **every NeoForge 1.21.1 mod in Horizon single player.** The mods run in real Java on a
+NeoForge server that the game starts for a world, out of sight. The game joins it through this
+bridge, and the world keeps single player's rules:
+- the pause screen freezes the server and saves the world
+- nobody else can join until the owner opens the world to LAN
+- leaving the world saves it and stops the server
+
+## Make a modded world
+
+```sh
+cargo build --profile fast -p horizon-port-pack -p horizon-client -p horizon-neoforge-bridge
+python3 tools/neoforge_bridge/setup_world.py --mods ~/my-mods --home ~/.local/share/horizon --world Modded
+# mods that need Java 21 (Cobblemon): add --java /path/to/java21/bin/java
+```
+
+It does three things:
+- installs NeoForge 21.1 for the world, with the mods and the companion mod
+- runs the NeoForge oracle, then carries every mod's blocks, items, models, textures, sounds
+  and data into Horizon content mods, keeping blocks no vanilla block matches
+  (`HORIZON_PORT_SERVER_BLOCKS=1`)
+- enables those content mods and creates `saves/Modded/horizon-neoforge.txt` (the server folder,
+  and optionally `java=...`)
+
+The world then opens from the Singleplayer screen like any other.
+
+The rest of this page is the design.
+
+Horizon draws what the server sends. The mods' logic
 runs on the server in Java. The Horizon client draws what the server sends and loads blocks, items,
 models and textures from the mod jars.
 
@@ -60,6 +87,9 @@ Taken from NeoForge's 1.21.1 branch (`ServerConfigurationPacketListenerImpl.java
 
 | Stage | State |
 |---|---|
+| Modded single player (`horizon-neoforge-host`, `game/modded.rs`): loopback-only server, owner only, Esc freezes and saves, Open to LAN, stop on leave, owner opped | done, checked with the real client |
+| Play: world, chunks with modded blocks, entities, items with components, inventories and clicks, chat, commands, sounds, block events | done (Create 6.0.10 checked in the real client); see the gaps below |
+| Content mods for modded blocks with their own states (`OwnStates`, `mod_content.rs`) | done: all 643 Create blocks render with Create's models |
 | Handshake, status (version rewritten so Horizon lists the server as joinable) | done |
 | Login, offline mode (767 `game_profile` → 777 `login_finished`) | done |
 | Login, online mode (bridge must join the session server with the player's token) | **todo** |
@@ -70,5 +100,14 @@ Taken from NeoForge's 1.21.1 branch (`ServerConfigurationPacketListenerImpl.java
 | Play: 767 → 777 translation (chunks, block state remap, entities and metadata, items and components, inventories, chat, commands) | **todo**: the largest part, one protocol step at a time (1.21.1 → 1.21.2 → … → 26.3) |
 | Modded play payloads (NeoForge's `advanced_add_entity`, `advanced_open_screen`, `sync_attachments`; mods' own) | **todo**: per mod; renderers and GUIs that exist only in Java client code won't draw |
 
-Today the bridge stops after configuration. It shows the client what it captured and disconnects.
-With `--dump`, it writes the captured facts as JSON.
+Gaps:
+- **Java-only client code doesn't run.** Create's turning shafts and belts, the mods' entity
+  models (Cobblemon's Pokémon), and custom screens and HUDs all need Horizon-side support or a
+  port: a model format loader for GeckoLib or Bedrock entities, data-driven screens, and per-mod
+  native ports.
+- **Modded entity types** don't spawn on the client yet; the bridge drops them.
+- **Particles, the command tree, the player list, attributes and mob effects** aren't
+  translated yet.
+
+Without `--resources` the bridge stops after configuration, shows the client what it captured
+and disconnects. With `--dump` it writes the captured facts as JSON.

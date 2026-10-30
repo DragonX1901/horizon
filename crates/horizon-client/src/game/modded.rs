@@ -4,8 +4,10 @@
 //! like a server, and the world keeps single player's rules: the pause screen
 //! pauses and saves it, and nobody else joins until it is opened to LAN.
 //!
-//! A world is modded when its folder holds `horizon-neoforge.txt`, naming the
-//! NeoForge server installation (with its mods) to run it on.
+//! A world is modded when its folder holds `horizon-neoforge.txt`: its first
+//! line names the NeoForge server installation (with its mods) to run it on,
+//! and an optional `java=PATH` line the Java to run that server with (mods
+//! such as Cobblemon need the Java 21 that 1.21.1 ships with).
 use super::*;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -14,15 +16,23 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 /// The file that makes a world modded.
 pub(super) const MARKER: &str = "horizon-neoforge.txt";
 
-/// The NeoForge installation a world runs on, when it is modded.
-pub(super) fn server_dir(world: &Path) -> Option<PathBuf> {
+/// How a modded world runs: its NeoForge installation and the Java for it.
+pub(super) struct Marker {
+    pub server: PathBuf,
+    pub java: Option<PathBuf>,
+}
+
+/// The world's marker, when it is modded.
+pub(super) fn marker(world: &Path) -> Option<Marker> {
     let text = std::fs::read_to_string(world.join(MARKER)).ok()?;
-    let dir = PathBuf::from(text.trim());
-    Some(if dir.is_absolute() {
-        dir
-    } else {
-        world.join(dir)
-    })
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let resolve = |p: &str| {
+        let p = PathBuf::from(p);
+        if p.is_absolute() { p } else { world.join(p) }
+    };
+    let server = resolve(lines.next()?);
+    let java = lines.find_map(|l| l.strip_prefix("java=")).map(resolve);
+    Some(Marker { server, java })
 }
 
 pub(super) struct ModdedHost {
@@ -36,7 +46,7 @@ pub(super) struct ModdedHost {
 impl ModdedHost {
     /// Start the world's server and wait for it: the loopback port to join.
     pub fn start(
-        server: &Path,
+        marker: &Marker,
         world: &Path,
         resources: &Path,
         name: &str,
@@ -48,7 +58,7 @@ impl ModdedHost {
         ));
         let mut child = Command::new(&exe)
             .arg("--server-dir")
-            .arg(server)
+            .arg(&marker.server)
             .arg("--world")
             .arg(world)
             .arg("--resources")
@@ -57,6 +67,12 @@ impl ModdedHost {
             .arg(name)
             .arg("--owner")
             .arg(owner)
+            .args(
+                marker
+                    .java
+                    .iter()
+                    .flat_map(|j| [std::ffi::OsStr::new("--java"), j.as_os_str()]),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -144,9 +160,15 @@ mod tests {
     fn marker_names_the_server() {
         let dir = std::env::temp_dir().join(format!("horizon-modded-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(server_dir(&dir), None);
-        std::fs::write(dir.join(MARKER), "/opt/neoforge\n").unwrap();
-        assert_eq!(server_dir(&dir), Some(PathBuf::from("/opt/neoforge")));
+        assert!(marker(&dir).is_none());
+        std::fs::write(
+            dir.join(MARKER),
+            "/opt/neoforge\njava=/opt/jre21/bin/java\n",
+        )
+        .unwrap();
+        let m = marker(&dir).unwrap();
+        assert_eq!(m.server, PathBuf::from("/opt/neoforge"));
+        assert_eq!(m.java, Some(PathBuf::from("/opt/jre21/bin/java")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
