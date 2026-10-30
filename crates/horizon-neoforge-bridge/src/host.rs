@@ -29,6 +29,9 @@ pub struct HostOptions {
     pub java: PathBuf,
     /// The world's name, for the LAN announcement.
     pub name: String,
+    /// The owner's player name: made an operator, as a single-player world with
+    /// commands allowed lets its player use them.
+    pub owner: Option<String>,
 }
 
 fn free_port(ip: Ipv4Addr) -> std::io::Result<u16> {
@@ -164,6 +167,9 @@ pub fn run(options: HostOptions) -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("no server stdin"))?,
     ));
     wait_until_ready(&mut child)?;
+    if let Some(owner) = &options.owner {
+        console(&server_stdin, &format!("op {owner}"));
+    }
     // The owner's listener lets one player in, whoever else is playing: a second
     // login there is refused until LAN is open, and LAN players join on their own.
     let owner_bridge = Options {

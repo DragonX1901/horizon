@@ -3,12 +3,13 @@
 use horizon_neoforge_bridge::host::{HostOptions, run};
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: horizon-neoforge-host --server-dir DIR --world DIR --resources DIR [--java PATH] [--name NAME]";
+const USAGE: &str = "usage: horizon-neoforge-host --server-dir DIR --world DIR --resources DIR [--java PATH] [--name NAME] [--owner PLAYER]";
 
 fn main() {
     let (mut server_dir, mut world, mut resources) = (None, None, None);
     let mut java = PathBuf::from("java");
     let mut name = None;
+    let mut owner = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let Some(value) = args.next() else {
@@ -21,6 +22,7 @@ fn main() {
             "--resources" => resources = Some(PathBuf::from(value)),
             "--java" => java = PathBuf::from(value),
             "--name" => name = Some(value),
+            "--owner" => owner = Some(value),
             _ => {
                 eprintln!("unknown argument {arg}\n{USAGE}");
                 std::process::exit(2);
@@ -42,6 +44,7 @@ fn main() {
         resources,
         java,
         name,
+        owner,
     }) {
         eprintln!("[host] {e}");
         std::process::exit(1);

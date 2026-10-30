@@ -9844,9 +9844,14 @@ impl Game<'_> {
         let world_dir = std::env::current_dir()?.join("saves").join(folder);
         if let Some(server) = modded::server_dir(&world_dir) {
             let shown = name.unwrap_or(folder).to_owned();
-            let (host, port) =
-                modded::ModdedHost::start(&server, &world_dir, &self.options.resources, &shown)?;
             let player = self.options.player_name();
+            let (host, port) = modded::ModdedHost::start(
+                &server,
+                &world_dir,
+                &self.options.resources,
+                &shown,
+                &player,
+            )?;
             self.join_server(&format!("127.0.0.1:{port}"), &player, None, None)?;
             self.modded = Some(host);
             return Ok(());

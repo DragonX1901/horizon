@@ -35,7 +35,13 @@ pub(super) struct ModdedHost {
 
 impl ModdedHost {
     /// Start the world's server and wait for it: the loopback port to join.
-    pub fn start(server: &Path, world: &Path, resources: &Path, name: &str) -> Result<(Self, u16)> {
+    pub fn start(
+        server: &Path,
+        world: &Path,
+        resources: &Path,
+        name: &str,
+        owner: &str,
+    ) -> Result<(Self, u16)> {
         let exe = std::env::current_exe()?.with_file_name(format!(
             "horizon-neoforge-host{}",
             std::env::consts::EXE_SUFFIX
@@ -49,6 +55,8 @@ impl ModdedHost {
             .arg(resources)
             .arg("--name")
             .arg(name)
+            .arg("--owner")
+            .arg(owner)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
