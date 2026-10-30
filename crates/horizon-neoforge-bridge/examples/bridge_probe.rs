@@ -156,13 +156,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 s.items
                     .iter()
                     .flatten()
-                    .map(|i| (i.item, i.count))
+                    .map(|i| (i.item, i.count, &i.added))
                     .collect::<Vec<_>>()
             ),
             Ok(play::Clientbound::ContainerSetSlot(s)) => println!(
-                "slot {}: {:?}",
+                "slot {}: {:?} components {:?}",
                 s.slot,
-                s.item.as_ref().map(|i| (i.item, i.count))
+                s.item.as_ref().map(|i| (i.item, i.count)),
+                s.item.as_ref().map(|i| &i.added)
             ),
             Ok(play::Clientbound::Disconnect(d)) => {
                 println!("play disconnect: {d:?}");

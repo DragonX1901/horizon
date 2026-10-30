@@ -195,7 +195,7 @@ pub struct Profile {
     pub properties: Vec<(String, String, Option<String>)>,
 }
 impl Component {
-    pub(crate) fn read(kind: i32, r: &mut Reader) -> Result<Self> {
+    pub fn read(kind: i32, r: &mut Reader) -> Result<Self> {
         use component::*;
         Ok(match kind {
             MAX_STACK_SIZE

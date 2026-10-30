@@ -71,7 +71,8 @@ const SAME_SERVERBOUND: &[&str] = &[
     "use_item",
     "set_carried_item",
     "chat_command",
-    "container_close",
+    "select_trade",
+    "rename_item",
 ];
 
 /// Name → id over a generated `NAMES` table.
@@ -102,6 +103,8 @@ pub struct Context {
     pub items: HashMap<i32, i32>,
     pub entity_types: HashMap<i32, i32>,
     pub menus: HashMap<i32, i32>,
+    /// Data component types: server id → client id.
+    pub components: HashMap<i32, i32>,
     /// The client's item for server items it lacks.
     pub placeholder_item: i32,
     /// The client's `minecraft:experience_orb` entity type.
@@ -118,6 +121,8 @@ pub struct Play {
     sections: usize,
     /// The 777 input flags last sent, to derive 767's sneak and sprint commands.
     input: u8,
+    /// Items: client id → server id, for stacks the client sends.
+    items_back: HashMap<i32, i32>,
 }
 
 impl Play {
@@ -134,7 +139,13 @@ impl Play {
             .iter()
             .filter_map(|n| Some((*s777.get(n)?, *s767.get(n)?)))
             .collect();
+        let items_back = ctx
+            .items
+            .iter()
+            .map(|(&server, &client)| (client, server))
+            .collect();
         Self {
+            items_back,
             ctx,
             clientbound,
             serverbound,
@@ -500,21 +511,53 @@ impl Play {
         let item = r.varint()?;
         let added = r.count(1 << 10)?;
         let removed = r.count(1 << 10)?;
+        let mut stack = horizon_protocol::item::Stack::new(
+            self.ctx
+                .items
+                .get(&item)
+                .copied()
+                .unwrap_or(self.ctx.placeholder_item),
+            count,
+        );
         for _ in 0..added {
-            let _kind = r.varint()?;
+            let kind = r.varint()?;
             let len = r.count(r.remaining())?;
-            r.bytes(len)?;
+            let value = r.bytes(len)?;
+            if let Some(component) = self.component(kind, value) {
+                stack.added.push(component);
+            }
         }
         for _ in 0..removed {
-            r.varint()?;
+            if let Some(&kind) = self.ctx.components.get(&r.varint()?) {
+                stack.removed.push(kind);
+            }
         }
-        let item = self
-            .ctx
-            .items
-            .get(&item)
-            .copied()
-            .unwrap_or(self.ctx.placeholder_item);
-        Ok(Some(horizon_protocol::item::Stack::new(item, count)))
+        Ok(Some(stack))
+    }
+
+    /// A component value kept when the client has the same type and reads all of
+    /// its 767 bytes as that type: a component whose encoding did not change.
+    fn component(
+        &self,
+        kind: i32,
+        value: &[u8],
+    ) -> Option<(i32, horizon_protocol::item::Component)> {
+        use horizon_protocol::item::Component;
+        let kind = *self.ctx.components.get(&kind)?;
+        let mut r = Reader::new(value);
+        let component = match Component::read(kind, &mut r) {
+            Ok(Component::Raw(_)) | Err(_) => return None,
+            Ok(component) => component,
+        };
+        // 1.21.1 ends enchantments, unbreakable and dyed colour with a
+        // show-in-tooltip flag that 1.21.5 moved to its own component.
+        let tooltip_flag = r.remaining() == 1
+            && value.last().is_some_and(|&b| b <= 1)
+            && matches!(
+                component,
+                Component::Enchantments(_) | Component::Unit | Component::Int(_)
+            );
+        (r.remaining() == 0 || tooltip_flag).then_some((kind, component))
     }
 
     /// SetEntityData's values, 767 (framed by the companion mod) to 777: the
@@ -668,6 +711,52 @@ impl Play {
                 self.input = flags;
                 out
             }
+            // 767's server runs the click itself and then corrects every slot the client
+            // didn't claim: sending no claims re-syncs whatever the click changed.
+            S777::ContainerClick(c) => vec![packet(sb::CONTAINER_CLICK, &|w| {
+                w.i8(c.container as i8);
+                w.varint(c.state);
+                w.i16(c.slot);
+                w.i8(c.button);
+                w.varint(c.input);
+                w.varint(0);
+                w.varint(0);
+            })],
+            S777::ContainerClose(c) => {
+                vec![packet(sb::CONTAINER_CLOSE, &|w| w.u8(c.container as u8))]
+            }
+            S777::ContainerButtonClick(b) => vec![packet(sb::CONTAINER_BUTTON_CLICK, &|w| {
+                w.i8(b.container as i8);
+                w.i8(b.button as i8);
+            })],
+            S777::SetCreativeModeSlot(c) => {
+                let item = c
+                    .item
+                    .as_ref()
+                    .and_then(|s| Some((*self.items_back.get(&s.item)?, s.count)));
+                vec![packet(sb::SET_CREATIVE_MODE_SLOT, &|w| {
+                    w.i16(c.slot);
+                    match item {
+                        Some((item, count)) => {
+                            w.varint(count);
+                            w.varint(item);
+                            w.varint(0);
+                            w.varint(0);
+                        }
+                        None => w.varint(0),
+                    }
+                })]
+            }
+            // Unsigned: an offline server with secure chat off takes it as it is.
+            S777::Chat(c) => vec![packet(sb::CHAT, &|w| {
+                w.string(&c.message);
+                w.i64(c.timestamp);
+                w.i64(c.salt);
+                w.bool(false);
+                w.varint(c.last_seen.offset);
+                w.bytes(&c.last_seen.acknowledged);
+            })],
+            S777::ChatCommandSigned(c) => vec![packet(sb::CHAT_COMMAND, &|w| w.string(&c.command))],
             S777::ClientCommand(c) if c.action <= 1 => {
                 vec![packet(sb::CLIENT_COMMAND, &|w| w.varint(c.action))]
             }

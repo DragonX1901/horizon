@@ -652,6 +652,7 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         items: remap("minecraft:item"),
         entity_types: remap("minecraft:entity_type"),
         menus: remap("minecraft:menu"),
+        components: remap("minecraft:data_component_type"),
         placeholder_item: client_id("minecraft:item", "minecraft:barrier").unwrap_or(0),
         experience_orb: client_id("minecraft:entity_type", "minecraft:experience_orb"),
     })
