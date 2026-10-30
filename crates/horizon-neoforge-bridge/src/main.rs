@@ -62,6 +62,8 @@ fn main() {
         server_port,
         dump_dir,
         resources,
+        players: Default::default(),
+        max_players: None,
     });
     if let Err(e) = serve(listener, options) {
         eprintln!("[bridge] {e}");

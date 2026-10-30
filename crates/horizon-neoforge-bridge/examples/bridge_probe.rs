@@ -129,5 +129,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     println!("play packets: {seen:?}");
+    // PROBE_HOLD=seconds: stay in the world (answering keep-alives) before leaving.
+    let hold: u64 = std::env::var("PROBE_HOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let until = std::time::Instant::now() + Duration::from_secs(hold);
+    c.reader
+        .set_read_timeout(Some(Duration::from_millis(500)))?;
+    while std::time::Instant::now() < until {
+        if let Ok((id, body)) = c.recv()
+            && let Ok(play::Clientbound::KeepAlive(k)) = play::Clientbound::decode(id, &body)
+        {
+            c.send(&play::Serverbound::KeepAlive(k).encode())?;
+        }
+    }
     Ok(())
 }

@@ -15,5 +15,9 @@ serde_json = "1.0.151"
 name = "horizon-neoforge-bridge"
 path = "src/main.rs"
 
+[[bin]]
+name = "horizon-neoforge-host"
+path = "src/bin/host.rs"
+
 [lints]
 workspace = true

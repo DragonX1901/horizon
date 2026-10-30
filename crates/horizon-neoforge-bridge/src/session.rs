@@ -13,6 +13,7 @@ use horizon_protocol::{Error, Result, text};
 use horizon_world::nbt::Tag;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -27,6 +28,18 @@ pub struct Options {
     /// The client's resources (`facts.json`, `registries.json`): with them the
     /// bridge goes on into play; without, it stops after configuration.
     pub resources: Option<PathBuf>,
+    /// Players in the world, shared by every listener of one world, and how many
+    /// this listener lets in (None: no limit).
+    pub players: Arc<AtomicUsize>,
+    pub max_players: Option<usize>,
+}
+
+/// One counted player, uncounted when the session ends.
+struct Seat(Arc<AtomicUsize>);
+impl Drop for Seat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Accept Horizon clients forever, one thread each.
@@ -73,7 +86,7 @@ fn login_disconnect(client: &mut Connection, message: &str) -> Result<()> {
     }))
 }
 
-fn handle(stream: TcpStream, options: &Options) -> Result<()> {
+pub fn handle(stream: TcpStream, options: &Options) -> Result<()> {
     let mut client = Connection::from_stream(stream)?;
     let (id, body) = client.recv()?;
     let intention = match handshake::Serverbound::decode(id, &body)? {
@@ -100,6 +113,16 @@ fn handle(stream: TcpStream, options: &Options) -> Result<()> {
     }))?;
     if intention.intent == handshake::STATUS {
         return status(client, server);
+    }
+    let _seat = Seat(options.players.clone());
+    if options
+        .max_players
+        .is_some_and(|max| options.players.fetch_add(1, Ordering::SeqCst) >= max)
+    {
+        return login_disconnect(&mut client, "This world is not open to LAN.");
+    }
+    if options.max_players.is_none() {
+        options.players.fetch_add(1, Ordering::SeqCst);
     }
     let Some(player) = login(&mut client, &mut server)? else {
         return Ok(());

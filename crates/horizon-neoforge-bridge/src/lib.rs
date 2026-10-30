@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 pub mod blocks;
 pub mod facts;
+pub mod host;
 pub mod ids_767;
 pub mod neoforge;
 pub mod play;
