@@ -74,8 +74,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Play: decode every packet as the client would, answer what the server waits for.
     let mut seen = std::collections::BTreeMap::<&str, usize>::new();
     let mut chunks = 0;
-    while chunks < 40 {
-        let (id, body) = c.recv()?;
+    // PROBE_HOLD=seconds: stay in the world after the first 40 chunks.
+    let hold: u64 = std::env::var("PROBE_HOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let mut until = None;
+    c.reader
+        .set_read_timeout(Some(Duration::from_millis(500)))?;
+    loop {
+        if chunks >= 40 && until.is_none() {
+            until = Some(std::time::Instant::now() + Duration::from_secs(hold));
+        }
+        if until.is_some_and(|u| std::time::Instant::now() >= u) {
+            break;
+        }
+        let (id, body) = match c.recv() {
+            Ok(p) => p,
+            Err(e)
+                if e.is_timed_out()
+                    || e.0.contains("timed out")
+                    || e.0.contains("Resource temporarily") =>
+            {
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
         let name = horizon_protocol::ids::play::clientbound::NAMES[id as usize];
         *seen.entry(name).or_default() += 1;
         match play::Clientbound::decode(id, &body) {
@@ -120,6 +144,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .encode(),
             )?,
+            Ok(play::Clientbound::AddEntity(e)) => println!(
+                "add_entity id {} type {} at {:?} data {}",
+                e.id, e.kind, e.position, e.data
+            ),
+            Ok(play::Clientbound::SetEntityData(d)) => {
+                println!("entity_data {}: {:?}", d.id, d.values)
+            }
+            Ok(play::Clientbound::ContainerSetContent(s)) => println!(
+                "inventory: {:?}",
+                s.items
+                    .iter()
+                    .flatten()
+                    .map(|i| (i.item, i.count))
+                    .collect::<Vec<_>>()
+            ),
+            Ok(play::Clientbound::ContainerSetSlot(s)) => println!(
+                "slot {}: {:?}",
+                s.slot,
+                s.item.as_ref().map(|i| (i.item, i.count))
+            ),
             Ok(play::Clientbound::Disconnect(d)) => {
                 println!("play disconnect: {d:?}");
                 break;
@@ -129,20 +173,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     println!("play packets: {seen:?}");
-    // PROBE_HOLD=seconds: stay in the world (answering keep-alives) before leaving.
-    let hold: u64 = std::env::var("PROBE_HOLD")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let until = std::time::Instant::now() + Duration::from_secs(hold);
-    c.reader
-        .set_read_timeout(Some(Duration::from_millis(500)))?;
-    while std::time::Instant::now() < until {
-        if let Ok((id, body)) = c.recv()
-            && let Ok(play::Clientbound::KeepAlive(k)) = play::Clientbound::decode(id, &body)
-        {
-            c.send(&play::Serverbound::KeepAlive(k).encode())?;
-        }
-    }
     Ok(())
 }

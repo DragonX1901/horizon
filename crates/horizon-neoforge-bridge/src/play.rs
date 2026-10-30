@@ -47,6 +47,15 @@ const SAME_CLIENTBOUND: &[&str] = &[
     "set_border_warning_distance",
     "ticking_state",
     "ticking_step",
+    "move_entity_rot",
+    "rotate_head",
+    "remove_entities",
+    "entity_event",
+    "animate",
+    "take_item_entity",
+    "hurt_animation",
+    "set_entity_link",
+    "set_passengers",
 ];
 /// Serverbound packets whose 777 and 767 bodies are the same (the move packets'
 /// flags byte reads as 767's on-ground boolean: any non-zero byte is true).
@@ -89,6 +98,14 @@ pub struct Context {
     pub dimension_types: Vec<(String, i32, i32)>,
     /// Block entity types: server id → client id.
     pub block_entity_types: HashMap<i32, i32>,
+    /// Items, entity types and menus: server id → client id.
+    pub items: HashMap<i32, i32>,
+    pub entity_types: HashMap<i32, i32>,
+    pub menus: HashMap<i32, i32>,
+    /// The client's item for server items it lacks.
+    pub placeholder_item: i32,
+    /// The client's `minecraft:experience_orb` entity type.
+    pub experience_orb: Option<i32>,
 }
 
 pub struct Play {
@@ -232,6 +249,164 @@ impl Play {
                     pitch: 0.0,
                 })
             }
+            cb::ADD_ENTITY => {
+                let id = r.varint()?;
+                let uuid = r.uuid()?;
+                let Some(&kind) = self.ctx.entity_types.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                let position = [r.f64()?, r.f64()?, r.f64()?];
+                let (pitch, yaw, head_yaw) = (r.i8()?, r.i8()?, r.i8()?);
+                let data = r.varint()?;
+                let velocity = [velocity(r.i16()?), velocity(r.i16()?), velocity(r.i16()?)];
+                C777::AddEntity(p777::AddEntity {
+                    id,
+                    uuid,
+                    kind,
+                    position,
+                    velocity,
+                    pitch,
+                    yaw,
+                    head_yaw,
+                    data,
+                })
+            }
+            cb::ADD_EXPERIENCE_ORB => {
+                let Some(kind) = self.ctx.experience_orb else {
+                    return Ok(Vec::new());
+                };
+                let id = r.varint()?;
+                let position = [r.f64()?, r.f64()?, r.f64()?];
+                let value = i32::from(r.i16()?);
+                // 777 spawns orbs as ordinary entities, their value in the data field.
+                C777::AddEntity(p777::AddEntity {
+                    id,
+                    uuid: u128::from(id as u32),
+                    kind,
+                    position,
+                    velocity: [0.0; 3],
+                    pitch: 0,
+                    yaw: 0,
+                    head_yaw: 0,
+                    data: value,
+                })
+            }
+            // 767: id, deltas, [rotation], on ground. 777 puts on-ground (bit 0) and
+            // a step count (0: one linear move) in a varint ahead of the deltas.
+            cb::MOVE_ENTITY_POS | cb::MOVE_ENTITY_POS_ROT => {
+                let rot = id == cb::MOVE_ENTITY_POS_ROT;
+                let entity = r.varint()?;
+                let delta = [r.i16()?, r.i16()?, r.i16()?];
+                let rotation = if rot { Some((r.i8()?, r.i8()?)) } else { None };
+                let on_ground = r.bool()?;
+                let mut w = Writer::new();
+                w.varint(if rot {
+                    v777::play::clientbound::MOVE_ENTITY_POS_ROT
+                } else {
+                    v777::play::clientbound::MOVE_ENTITY_POS
+                });
+                w.varint(entity);
+                w.varint(i32::from(on_ground));
+                for d in delta {
+                    w.i16(d);
+                }
+                if let Some((yaw, pitch)) = rotation {
+                    w.i8(yaw);
+                    w.i8(pitch);
+                }
+                return Ok(vec![w.data]);
+            }
+            cb::SET_ENTITY_MOTION => {
+                let id = r.varint()?;
+                let velocity = [velocity(r.i16()?), velocity(r.i16()?), velocity(r.i16()?)];
+                C777::SetEntityMotion(p777::SetEntityMotion { id, velocity })
+            }
+            cb::TELEPORT_ENTITY => {
+                let id = r.varint()?;
+                let position = [r.f64()?, r.f64()?, r.f64()?];
+                let yaw = f32::from(r.i8()?) * 360.0 / 256.0;
+                let pitch = f32::from(r.i8()?) * 360.0 / 256.0;
+                let on_ground = r.bool()?;
+                C777::TeleportEntity(p777::TeleportEntity {
+                    id,
+                    position,
+                    delta: [0.0; 3],
+                    yaw,
+                    pitch,
+                    relatives: 0,
+                    on_ground,
+                })
+            }
+            cb::SET_ENTITY_DATA => {
+                let mut w = Writer::new();
+                w.varint(v777::play::clientbound::SET_ENTITY_DATA);
+                w.varint(r.varint()?);
+                self.entity_data(&mut r, &mut w)?;
+                return Ok(vec![w.data]);
+            }
+            cb::SET_EQUIPMENT => {
+                let id = r.varint()?;
+                let mut slots = Vec::new();
+                loop {
+                    let slot = r.u8()?;
+                    slots.push((slot & 127, self.stack(&mut r)?));
+                    if slot & 128 == 0 {
+                        break;
+                    }
+                }
+                C777::SetEquipment(p777::SetEquipment { id, slots })
+            }
+            cb::CONTAINER_SET_CONTENT => {
+                let container = i32::from(r.u8()?);
+                let state = r.varint()?;
+                let items = (0..r.count(1 << 12)?)
+                    .map(|_| self.stack(&mut r))
+                    .collect::<Result<_>>()?;
+                let carried = self.stack(&mut r)?;
+                C777::ContainerSetContent(p777::ContainerSetContent {
+                    container,
+                    state,
+                    items,
+                    carried,
+                })
+            }
+            cb::CONTAINER_SET_SLOT => {
+                let container = i32::from(r.i8()?);
+                let state = r.varint()?;
+                let slot = r.i16()?;
+                let item = self.stack(&mut r)?;
+                C777::ContainerSetSlot(p777::ContainerSetSlot {
+                    container,
+                    state,
+                    slot,
+                    item,
+                })
+            }
+            cb::CONTAINER_SET_DATA => {
+                let container = i32::from(r.u8()?);
+                C777::ContainerSetData(p777::ContainerSetData {
+                    container,
+                    id: r.i16()?,
+                    value: r.i16()?,
+                })
+            }
+            cb::CONTAINER_CLOSE => C777::ContainerClose(p777::ContainerClose {
+                container: i32::from(r.u8()?),
+            }),
+            cb::OPEN_SCREEN => {
+                let container = r.varint()?;
+                let Some(&menu) = self.ctx.menus.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                C777::OpenScreen(p777::OpenScreen {
+                    container,
+                    menu,
+                    title: r.nbt()?,
+                })
+            }
+            cb::SET_CARRIED_ITEM => C777::SetHeldSlot(p777::SetHeldSlot {
+                slot: i32::from(r.i8()?),
+            }),
             cb::SET_TIME => {
                 let game_time = r.i64()?;
                 let day_time = r.i64()?;
@@ -312,6 +487,95 @@ impl Play {
             states: Paletted::from_values(&states, Strategy::Blocks, self.ctx.client_block_bits),
             biomes: Paletted::from_values(&biomes, Strategy::Biomes, ceil_log2(self.ctx.biomes)),
         })
+    }
+
+    /// A 767 item stack, as the companion mod frames it for the bridge: the item
+    /// remapped. Its components are dropped for now (each is length-prefixed, so
+    /// unknown ones skip cleanly).
+    fn stack(&self, r: &mut Reader) -> Result<Option<horizon_protocol::item::Stack>> {
+        let count = r.varint()?;
+        if count <= 0 {
+            return Ok(None);
+        }
+        let item = r.varint()?;
+        let added = r.count(1 << 10)?;
+        let removed = r.count(1 << 10)?;
+        for _ in 0..added {
+            let _kind = r.varint()?;
+            let len = r.count(r.remaining())?;
+            r.bytes(len)?;
+        }
+        for _ in 0..removed {
+            r.varint()?;
+        }
+        let item = self
+            .ctx
+            .items
+            .get(&item)
+            .copied()
+            .unwrap_or(self.ctx.placeholder_item);
+        Ok(Some(horizon_protocol::item::Stack::new(item, count)))
+    }
+
+    /// SetEntityData's values, 767 (framed by the companion mod) to 777: the
+    /// serializers whose encoding is unchanged move to their 777 ids; block states
+    /// and items are translated; the rest are left out.
+    fn entity_data(&self, r: &mut Reader, w: &mut Writer) -> Result<()> {
+        use horizon_protocol::entity_data::serializer as s777;
+        loop {
+            let index = r.u8()?;
+            if index == 0xFF {
+                w.u8(0xFF);
+                return Ok(());
+            }
+            let serializer = r.varint()?;
+            let len = r.count(r.remaining())?;
+            let value = r.bytes(len)?;
+            let same = |id: i32| Some((id, value.to_vec()));
+            let out: Option<(i32, Vec<u8>)> = match serializer {
+                // BYTE … DIRECTION, then OPTIONAL_UUID: unchanged ids and encodings,
+                // except the item stack.
+                0..=6 | 8..=13 => same(serializer),
+                7 => {
+                    let stack = self.stack(&mut Reader::new(value))?;
+                    let mut v = Writer::new();
+                    horizon_protocol::item::Slot::write(&stack, &mut v);
+                    Some((s777::ITEM_STACK, v.data))
+                }
+                14 => {
+                    let state = self.ctx.states.map(Reader::new(value).varint()?);
+                    let mut v = Writer::new();
+                    v.varint(state);
+                    Some((s777::BLOCK_STATE, v.data))
+                }
+                15 => {
+                    let raw = Reader::new(value).varint()?;
+                    let mut v = Writer::new();
+                    v.varint(if raw == 0 {
+                        0
+                    } else {
+                        self.ctx.states.map(raw - 1) + 1
+                    });
+                    Some((s777::OPTIONAL_BLOCK_STATE, v.data))
+                }
+                19 => same(s777::VILLAGER_DATA),
+                20 => same(s777::OPTIONAL_UNSIGNED_INT),
+                21 => same(s777::POSE),
+                23 => same(s777::WOLF_VARIANT),
+                25 => same(s777::OPTIONAL_GLOBAL_POS),
+                26 => same(s777::PAINTING_VARIANT),
+                27 => same(s777::SNIFFER_STATE),
+                28 => same(s777::ARMADILLO_STATE),
+                29 => same(s777::VECTOR3),
+                30 => same(s777::QUATERNION),
+                _ => None,
+            };
+            if let Some((serializer, bytes)) = out {
+                w.u8(index);
+                w.varint(serializer);
+                w.bytes(&bytes);
+            }
+        }
     }
 
     /// A 777 serverbound packet as the 767 packets to send for it.
@@ -507,6 +771,11 @@ fn heightmaps(tag: &Tag) -> Vec<(i32, Vec<i64>)> {
             _ => None,
         })
         .collect()
+}
+
+/// ClientboundAddEntityPacket's velocity: 1/8000 of a block per tick, clamped to ±3.9.
+fn velocity(v: i16) -> f64 {
+    f64::from(v) / 8000.0
 }
 
 /// BlockPos.asLong: x 26 bits, z 26 bits, y 12 bits.

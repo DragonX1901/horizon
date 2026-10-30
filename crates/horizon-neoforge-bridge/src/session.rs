@@ -620,19 +620,22 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
     }
     let builtin = horizon_protocol::registry::Builtin::find(resources)
         .and_then(|p| horizon_protocol::registry::Builtin::load(&p).ok());
-    let mut block_entity_types = std::collections::HashMap::new();
-    if let (Some(server), Some(client)) = (
-        state.facts.frozen.get("minecraft:block_entity_type"),
-        builtin
-            .as_ref()
-            .and_then(|b| b.get("minecraft:block_entity_type")),
-    ) {
-        for (&id, name) in &server.ids {
-            if let Some(to) = client.id(name) {
-                block_entity_types.insert(id, to);
+    // A frozen registry's server ids → the client's ids of the same names.
+    let remap = |registry: &str| {
+        let mut out = std::collections::HashMap::new();
+        if let (Some(server), Some(client)) = (
+            state.facts.frozen.get(registry),
+            builtin.as_ref().and_then(|b| b.get(registry)),
+        ) {
+            for (&id, name) in &server.ids {
+                if let Some(to) = client.id(name) {
+                    out.insert(id, to);
+                }
             }
         }
-    }
+        out
+    };
+    let client_id = |registry: &str, name: &str| builtin.as_ref()?.get(registry)?.id(name);
     let biomes = state
         .facts
         .registries
@@ -645,7 +648,12 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         states,
         biomes,
         dimension_types: state.dimension_types.clone(),
-        block_entity_types,
+        block_entity_types: remap("minecraft:block_entity_type"),
+        items: remap("minecraft:item"),
+        entity_types: remap("minecraft:entity_type"),
+        menus: remap("minecraft:menu"),
+        placeholder_item: client_id("minecraft:item", "minecraft:barrier").unwrap_or(0),
+        experience_orb: client_id("minecraft:entity_type", "minecraft:experience_orb"),
     })
 }
 
