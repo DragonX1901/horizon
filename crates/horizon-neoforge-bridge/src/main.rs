@@ -6,13 +6,13 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const USAGE: &str =
-    "usage: horizon-neoforge-bridge --server HOST[:PORT] [--listen ADDR] [--dump DIR]";
+const USAGE: &str = "usage: horizon-neoforge-bridge --server HOST[:PORT] [--listen ADDR] [--dump DIR] [--resources DIR]";
 
 fn main() {
     let mut server = None;
     let mut listen = "127.0.0.1:25566".to_string();
     let mut dump_dir = None;
+    let mut resources = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || {
@@ -25,6 +25,7 @@ fn main() {
             "--server" => server = Some(value()),
             "--listen" => listen = value(),
             "--dump" => dump_dir = Some(PathBuf::from(value())),
+            "--resources" => resources = Some(PathBuf::from(value())),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return;
@@ -60,6 +61,7 @@ fn main() {
         server_host,
         server_port,
         dump_dir,
+        resources,
     });
     if let Err(e) = serve(listener, options) {
         eprintln!("[bridge] {e}");

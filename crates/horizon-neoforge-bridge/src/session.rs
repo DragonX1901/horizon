@@ -3,6 +3,7 @@
 use crate::facts::ServerFacts;
 use crate::ids_767 as v767;
 use crate::neoforge::{self, Splitter};
+use crate::play::{Context, Play};
 use horizon_protocol::buf::{Codec, Reader, Writer};
 use horizon_protocol::connection::{ConnWriter, Connection};
 use horizon_protocol::ids as v777;
@@ -12,6 +13,7 @@ use horizon_protocol::{Error, Result, text};
 use horizon_world::nbt::Tag;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -22,6 +24,9 @@ pub struct Options {
     pub server_port: u16,
     /// A folder to write each session's captured facts to (`<player>.json`).
     pub dump_dir: Option<PathBuf>,
+    /// The client's resources (`facts.json`, `registries.json`): with them the
+    /// bridge goes on into play; without, it stops after configuration.
+    pub resources: Option<PathBuf>,
 }
 
 /// Accept Horizon clients forever, one thread each.
@@ -99,7 +104,7 @@ fn handle(stream: TcpStream, options: &Options) -> Result<()> {
     let Some(player) = login(&mut client, &mut server)? else {
         return Ok(());
     };
-    let facts = configuration(client, server, &player)?;
+    let facts = configuration(client, server, &player, options)?;
     if let Some(dir) = &options.dump_dir {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("{player}.json"));
@@ -214,12 +219,38 @@ fn login(client: &mut Connection, server: &mut Connection) -> Result<Option<Stri
 fn forward_client(
     mut client: horizon_protocol::connection::ConnReader,
     server: Arc<Mutex<ConnWriter>>,
+    play: Receiver<Arc<Mutex<Play>>>,
 ) {
     let result: Result<()> = (|| {
+        let send = |body: &[u8]| -> Result<()> {
+            server
+                .lock()
+                .map_err(|_| Error::new("poisoned"))?
+                .send(body)
+        };
         loop {
             let (id, body) = client.recv()?;
             let mut r = Reader::new(&body);
             let out = match id {
+                v777::configuration::serverbound::FINISH_CONFIGURATION => {
+                    let Ok(play) = play.recv() else {
+                        return Ok(());
+                    };
+                    send(&packet(
+                        v767::configuration::serverbound::FINISH_CONFIGURATION,
+                        |_| {},
+                    ))?;
+                    loop {
+                        let (id, body) = client.recv()?;
+                        let packets = play
+                            .lock()
+                            .map_err(|_| Error::new("poisoned"))?
+                            .serverbound(id, &body)?;
+                        for p in packets {
+                            send(&p)?;
+                        }
+                    }
+                }
                 v777::configuration::serverbound::CLIENT_INFORMATION => {
                     let info = ClientInformation::read(&mut r)?;
                     // 767 has no particle status (added in 1.21.2).
@@ -270,6 +301,10 @@ struct Configuration {
     facts: ServerFacts,
     splitter: Splitter,
     failures: Vec<String>,
+    /// 777 packets for the client, sent after each server packet.
+    to_client: Vec<Vec<u8>>,
+    /// Dimension types in registry order: (name, min_y, height).
+    dimension_types: Vec<(String, i32, i32)>,
 }
 
 impl Configuration {
@@ -302,35 +337,54 @@ impl Configuration {
                 self.send(&packet(sb::PONG, |w| w.i32(token)))?;
             }
             cb::REGISTRY_DATA => {
+                // Same wire format in 777; the client keeps entries by name.
+                self.to_client.push(packet(
+                    v777::configuration::clientbound::REGISTRY_DATA,
+                    |w| w.bytes(body),
+                ));
                 let registry = r.string(32767)?;
                 let mut entries = Vec::new();
                 for _ in 0..r.count(1 << 20)? {
                     let name = r.string(32767)?;
                     let has_data = r.bool()?;
-                    if has_data {
-                        r.nbt()?;
+                    let data = if has_data { Some(r.nbt()?) } else { None };
+                    if registry == "minecraft:dimension_type" {
+                        let int = |k: &str| match data.as_ref().and_then(|d| d.get(k)) {
+                            Some(Tag::Int(v)) => Some(*v),
+                            _ => None,
+                        };
+                        let (min_y, height) =
+                            (int("min_y").unwrap_or(-64), int("height").unwrap_or(384));
+                        self.dimension_types.push((name.clone(), min_y, height));
                     }
                     entries.push((name, has_data));
                 }
                 self.facts.registries.insert(registry, entries);
             }
             cb::UPDATE_ENABLED_FEATURES => {
+                self.to_client.push(packet(
+                    v777::configuration::clientbound::UPDATE_ENABLED_FEATURES,
+                    |w| w.bytes(body),
+                ));
                 self.facts.enabled_features = (0..r.count(1 << 10)?)
                     .map(|_| r.string(32767))
                     .collect::<Result<_>>()?;
             }
-            cb::UPDATE_TAGS => self.facts.tag_registries = r.count(1 << 10)?,
+            cb::UPDATE_TAGS => {
+                self.to_client
+                    .push(packet(v777::configuration::clientbound::UPDATE_TAGS, |w| {
+                        w.bytes(body)
+                    }));
+                self.facts.tag_registries = r.count(1 << 10)?;
+            }
             cb::SELECT_KNOWN_PACKS => {
                 let mut offered = Vec::new();
                 for _ in 0..r.count(1 << 10)? {
                     offered.push((r.string(32767)?, r.string(32767)?, r.string(32767)?));
                 }
-                // Claim vanilla's core pack only: vanilla entries then arrive as bare
-                // names, and every modded entry with its full data.
-                let known: Vec<_> = offered
-                    .iter()
-                    .filter(|(ns, id, _)| ns == "minecraft" && id == "core")
-                    .collect();
+                // Know no packs: every entry arrives with its data, which the
+                // client needs (dimension heights) and which 26.3's packs differ from.
+                let known: Vec<&(String, String, String)> = Vec::new();
                 self.send(&packet(sb::SELECT_KNOWN_PACKS, |w| {
                     w.varint(known.len() as i32);
                     for (ns, id, version) in &known {
@@ -366,7 +420,16 @@ impl Configuration {
     fn payload(&mut self, channel: &str, data: &[u8]) -> Result<Step> {
         let mut r = Reader::new(data);
         match channel {
-            "minecraft:brand" => self.facts.brand = Some(r.string(32767)?),
+            "minecraft:brand" => {
+                self.to_client.push(packet(
+                    v777::configuration::clientbound::CUSTOM_PAYLOAD,
+                    |w| {
+                        w.string(channel);
+                        w.bytes(data);
+                    },
+                ));
+                self.facts.brand = Some(r.string(32767)?);
+            }
             neoforge::MC_REGISTER => self.facts.listening.extend(neoforge::read_channels(data)),
             neoforge::QUERY => {
                 let mut w = Writer::new();
@@ -431,21 +494,29 @@ impl Configuration {
     }
 }
 
-fn configuration(client: Connection, server: Connection, player: &str) -> Result<ServerFacts> {
+fn configuration(
+    client: Connection,
+    server: Connection,
+    player: &str,
+    options: &Options,
+) -> Result<ServerFacts> {
     let (mut server_reader, server_writer) = server.split();
     let (client_reader, mut client_writer) = client.split();
     let server_writer = Arc::new(Mutex::new(server_writer));
+    let (play_tx, play_rx) = channel();
     {
         let server_writer = server_writer.clone();
         std::thread::Builder::new()
             .name("bridge-client".into())
-            .spawn(move || forward_client(client_reader, server_writer))?;
+            .spawn(move || forward_client(client_reader, server_writer, play_rx))?;
     }
     let mut state = Configuration {
         server: server_writer.clone(),
         facts: ServerFacts::default(),
         splitter: Splitter::default(),
         failures: Vec::new(),
+        to_client: Vec::new(),
+        dimension_types: Vec::new(),
     };
     let disconnect = |w: &mut ConnWriter, reason: &Tag| {
         w.send(&packet(v777::configuration::clientbound::DISCONNECT, |p| {
@@ -454,7 +525,11 @@ fn configuration(client: Connection, server: Connection, player: &str) -> Result
     };
     loop {
         let (id, body) = server_reader.recv()?;
-        match state.packet(id, &body)? {
+        let step = state.packet(id, &body)?;
+        for p in state.to_client.drain(..) {
+            client_writer.send(&p)?;
+        }
+        match step {
             Step::Continue => {}
             Step::Disconnected(reason) => {
                 if !state.failures.is_empty() {
@@ -474,6 +549,20 @@ fn configuration(client: Connection, server: Connection, player: &str) -> Result
                 return Ok(state.facts);
             }
             Step::Finished => {
+                if let Some(ctx) = options
+                    .resources
+                    .as_deref()
+                    .and_then(|r| play_context(&state, r))
+                {
+                    let play = Arc::new(Mutex::new(Play::new(ctx)));
+                    let _ = play_tx.send(play.clone());
+                    client_writer.send(&packet(
+                        v777::configuration::clientbound::FINISH_CONFIGURATION,
+                        |_| {},
+                    ))?;
+                    eprintln!("[bridge] {player}: configuration done, playing");
+                    return play_loop(server_reader, client_writer, &play).map(|()| state.facts);
+                }
                 let summary = state.facts.summary();
                 eprintln!("[bridge] {player}: configuration captured\n{summary}");
                 let message = format!(
@@ -487,6 +576,70 @@ fn configuration(client: Connection, server: Connection, player: &str) -> Result
                     .shutdown();
                 return Ok(state.facts);
             }
+        }
+    }
+}
+
+/// What play translation needs: the server's block states mapped onto the
+/// client's registry, and the registries' sizes and ids. None when the server
+/// sent no block states (no companion mod) or the client resources don't load.
+fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Context> {
+    let server_states = state.facts.block_states.as_ref()?;
+    let facts = std::fs::File::open(resources.join("facts.json")).ok()?;
+    let (registry, flags) =
+        horizon_world::registry::BlockRegistry::from_facts_json_with_flags(facts).ok()?;
+    let states = crate::blocks::StateMap::build(server_states, &registry, "minecraft:stone")?;
+    if !states.missing_blocks.is_empty() {
+        eprintln!(
+            "[bridge] {} server blocks the client lacks, drawn as stone",
+            states.missing_blocks.len()
+        );
+    }
+    let builtin = horizon_protocol::registry::Builtin::find(resources)
+        .and_then(|p| horizon_protocol::registry::Builtin::load(&p).ok());
+    let mut block_entity_types = std::collections::HashMap::new();
+    if let (Some(server), Some(client)) = (
+        state.facts.frozen.get("minecraft:block_entity_type"),
+        builtin
+            .as_ref()
+            .and_then(|b| b.get("minecraft:block_entity_type")),
+    ) {
+        for (&id, name) in &server.ids {
+            if let Some(to) = client.id(name) {
+                block_entity_types.insert(id, to);
+            }
+        }
+    }
+    let biomes = state
+        .facts
+        .registries
+        .get("minecraft:worldgen/biome")
+        .map_or(64, Vec::len);
+    Some(Context {
+        client_block_bits: horizon_protocol::registry::ceil_log2(registry.len()),
+        client_fluid: flags.iter().map(|&(_, fluid)| fluid).collect(),
+        server_block_bits: horizon_protocol::registry::ceil_log2(server_states.state_count()),
+        states,
+        biomes,
+        dimension_types: state.dimension_types.clone(),
+        block_entity_types,
+    })
+}
+
+/// Server packets to the client until either side closes.
+fn play_loop(
+    mut server: horizon_protocol::connection::ConnReader,
+    mut client: ConnWriter,
+    play: &Mutex<Play>,
+) -> Result<()> {
+    loop {
+        let (id, body) = server.recv()?;
+        let packets = play
+            .lock()
+            .map_err(|_| Error::new("poisoned"))?
+            .clientbound(id, &body)?;
+        for p in packets {
+            client.send(&p)?;
         }
     }
 }

@@ -15,6 +15,7 @@ pub mod blocks;
 pub mod facts;
 pub mod ids_767;
 pub mod neoforge;
+pub mod play;
 pub mod session;
 
 /// The protocol version of Minecraft 1.21.1, which NeoForge 21.1 runs on.
