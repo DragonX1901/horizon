@@ -653,6 +653,24 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         entity_types: remap("minecraft:entity_type"),
         menus: remap("minecraft:menu"),
         components: remap("minecraft:data_component_type"),
+        blocks: remap("minecraft:block"),
+        sounds: state
+            .facts
+            .frozen
+            .get("minecraft:sound_event")
+            .map(|server| {
+                server
+                    .ids
+                    .iter()
+                    .map(|(&id, name)| {
+                        (
+                            id,
+                            client_id("minecraft:sound_event", name).ok_or_else(|| name.clone()),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         placeholder_item: client_id("minecraft:item", "minecraft:barrier").unwrap_or(0),
         experience_orb: client_id("minecraft:entity_type", "minecraft:experience_orb"),
     })

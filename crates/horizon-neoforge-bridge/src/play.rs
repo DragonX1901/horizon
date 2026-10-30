@@ -103,6 +103,10 @@ pub struct Context {
     pub items: HashMap<i32, i32>,
     pub entity_types: HashMap<i32, i32>,
     pub menus: HashMap<i32, i32>,
+    /// Sound events: server id → the client's id, or the name to send inline.
+    pub sounds: HashMap<i32, std::result::Result<i32, String>>,
+    /// Blocks (the registry, not states): server id → client id.
+    pub blocks: HashMap<i32, i32>,
     /// Data component types: server id → client id.
     pub components: HashMap<i32, i32>,
     /// The client's item for server items it lacks.
@@ -418,6 +422,69 @@ impl Play {
             cb::SET_CARRIED_ITEM => C777::SetHeldSlot(p777::SetHeldSlot {
                 slot: i32::from(r.i8()?),
             }),
+            cb::SOUND | cb::SOUND_ENTITY => {
+                let Some(sound) = self.sound(&mut r)? else {
+                    return Ok(Vec::new());
+                };
+                let source = r.varint()?;
+                if id == cb::SOUND {
+                    C777::Sound(p777::Sound {
+                        sound,
+                        source,
+                        x: r.i32()?,
+                        y: r.i32()?,
+                        z: r.i32()?,
+                        volume: r.f32()?,
+                        pitch: r.f32()?,
+                        seed: r.i64()?,
+                    })
+                } else {
+                    C777::SoundEntity(p777::SoundEntity {
+                        sound,
+                        source,
+                        id: r.varint()?,
+                        volume: r.f32()?,
+                        pitch: r.f32()?,
+                        seed: r.i64()?,
+                    })
+                }
+            }
+            cb::LEVEL_EVENT => {
+                let kind = r.i32()?;
+                let pos = unpack_pos(r.i64()?);
+                let data = r.i32()?;
+                // 2001 (block destroyed) carries the block's state.
+                let data = if kind == 2001 {
+                    self.ctx.states.map(data)
+                } else {
+                    data
+                };
+                C777::LevelEvent(p777::LevelEvent {
+                    kind,
+                    pos,
+                    data,
+                    global: r.bool()?,
+                })
+            }
+            cb::BLOCK_EVENT => {
+                let pos = unpack_pos(r.i64()?);
+                let (b0, b1) = (r.u8()?, r.u8()?);
+                let Some(&block) = self.ctx.blocks.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                C777::BlockEvent(p777::BlockEvent { pos, b0, b1, block })
+            }
+            cb::BLOCK_ENTITY_DATA => {
+                let pos = unpack_pos(r.i64()?);
+                let Some(&kind) = self.ctx.block_entity_types.get(&r.varint()?) else {
+                    return Ok(Vec::new());
+                };
+                C777::BlockEntityData(p777::BlockEntityData {
+                    pos,
+                    kind,
+                    tag: r.nbt()?,
+                })
+            }
             cb::SET_TIME => {
                 let game_time = r.i64()?;
                 let day_time = r.i64()?;
@@ -497,6 +564,23 @@ impl Play {
             fluids,
             states: Paletted::from_values(&states, Strategy::Blocks, self.ctx.client_block_bits),
             biomes: Paletted::from_values(&biomes, Strategy::Biomes, ceil_log2(self.ctx.biomes)),
+        })
+    }
+
+    /// A sound holder: by the client's id, or inline by name for a sound the
+    /// client's registry lacks (a mod's, played from its sound files).
+    #[allow(clippy::type_complexity)]
+    fn sound(&self, r: &mut Reader) -> Result<Option<(i32, Option<(String, Option<f32>)>)>> {
+        let id = r.varint()?;
+        if id == 0 {
+            let location = r.string(32767)?;
+            let range = if r.bool()? { Some(r.f32()?) } else { None };
+            return Ok(Some((-1, Some((location, range)))));
+        }
+        Ok(match self.ctx.sounds.get(&(id - 1)) {
+            Some(Ok(client)) => Some((*client, None)),
+            Some(Err(name)) => Some((-1, Some((name.clone(), None)))),
+            None => None,
         })
     }
 
