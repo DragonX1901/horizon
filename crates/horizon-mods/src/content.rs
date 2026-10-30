@@ -83,6 +83,39 @@ pub struct BlockShapes {
     pub values: BTreeMap<String, Vec<[f64; 6]>>,
 }
 
+/// A block's own state properties, for a block whose properties no vanilla
+/// block has: every state copies the template's default state (its behaviour
+/// tables), takes these property values, and its own shape. Its behaviour
+/// runs elsewhere (a NeoForge server through the bridge); the client draws it
+/// with the mod's own blockstate models and collides with its shapes.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OwnStates {
+    /// Each property's name and values, in the mod's declaration order; the
+    /// states are their product, the last property varying fastest.
+    pub properties: Vec<(String, Vec<String>)>,
+    /// The default state's index.
+    #[serde(default)]
+    pub default: usize,
+    /// Per state, its outline and collision boxes (absent: the template's).
+    #[serde(default)]
+    pub shapes: Option<Vec<Vec<[f64; 6]>>>,
+}
+impl OwnStates {
+    pub fn count(&self) -> usize {
+        self.properties.iter().map(|(_, v)| v.len()).product()
+    }
+    /// State `i`'s property values.
+    pub fn state(&self, mut i: usize) -> Vec<(&str, &str)> {
+        let mut out = vec![("", ""); self.properties.len()];
+        for (slot, (name, values)) in self.properties.iter().enumerate().rev() {
+            out[slot] = (name.as_str(), values[i % values.len()].as_str());
+            i /= values.len();
+        }
+        out
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BlockFile {
@@ -90,6 +123,8 @@ struct BlockFile {
     #[serde(default)]
     properties: BlockProperties,
     shapes: Option<BlockShapes>,
+    #[serde(default)]
+    states: Option<OwnStates>,
     #[serde(default)]
     default_state: BTreeMap<String, String>,
     #[serde(default = "yes")]
@@ -113,6 +148,8 @@ pub struct Block {
     pub default_state: BTreeMap<String, String>,
     /// Also add a block item with the same id.
     pub item: bool,
+    /// Its own state properties, in place of the template's.
+    pub states: Option<OwnStates>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -350,6 +387,7 @@ impl Content {
                 shapes: file.shapes,
                 default_state: file.default_state,
                 item: file.item,
+                states: file.states,
             });
         }
         for (item, name) in items {
@@ -421,6 +459,37 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             {
                 return Err("shape needs at most 16 finite boxes with ordered bounds".into());
             }
+        }
+    }
+    if let Some(own) = &file.states {
+        let n = own.count();
+        if own
+            .properties
+            .iter()
+            .any(|(k, v)| k.is_empty() || v.is_empty())
+            || n == 0
+            || n > 1 << 16
+        {
+            return Err("states needs named properties with values, at most 65536 states".into());
+        }
+        if own.default >= n {
+            return Err("states.default is not a state".into());
+        }
+        if file.shapes.is_some() || !file.default_state.is_empty() {
+            return Err("a block with its own states declares its shapes there".into());
+        }
+        if let Some(shapes) = &own.shapes
+            && (shapes.len() != n
+                || shapes.iter().any(|boxes| {
+                    boxes.len() > 64
+                        || boxes.iter().any(|b| {
+                            b.iter().any(|n| !n.is_finite()) || (0..3).any(|i| b[i] > b[i + 3])
+                        })
+                }))
+        {
+            return Err(
+                "states.shapes needs one list of at most 64 ordered boxes per state".into(),
+            );
         }
     }
     let p = &file.properties;
@@ -538,6 +607,7 @@ capabilities = ["registries"]
                     ..BlockProperties::default()
                 },
                 item: true,
+                states: None,
             }]
         );
         assert_eq!(content.items[0].id, "ruby:ruby");

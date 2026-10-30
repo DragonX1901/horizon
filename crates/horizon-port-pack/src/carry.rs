@@ -689,6 +689,69 @@ fn without_comments(bytes: &[u8]) -> Vec<u8> {
 /// and items are the ones the mod registers, with the templates and numbers
 /// the facts give; `allowed` says which vanilla blocks the game has;
 /// `pack` which mods the pack holds and ports along.
+/// `HORIZON_PORT_SERVER_BLOCKS=1`: the ports are for a world whose mods run on a
+/// NeoForge server through horizon-neoforge-bridge. A block no vanilla block can
+/// stand in for is still carried, as a block that keeps its own states and
+/// shapes (the server runs it; the client draws it and collides with it).
+fn server_blocks() -> bool {
+    std::env::var_os("HORIZON_PORT_SERVER_BLOCKS").is_some_and(|v| v == "1")
+}
+
+/// A block declaration with the block's own states, from the oracle: its
+/// properties in declaration order (the states' order: the last varies
+/// fastest), its default, every state's collision boxes, and a template for
+/// its behaviour tables chosen by shape (stone when every state is a full cube,
+/// glass, which hides no neighbour's faces, otherwise).
+fn own_states(block: &crate::oracle::Block) -> Option<Value> {
+    use crate::oracle::state_key;
+    let properties: Vec<(&String, &Vec<String>)> = block.properties.iter().collect();
+    let count: usize = properties.iter().map(|(_, v)| v.len()).product();
+    if count == 0 || count > 1 << 16 {
+        return None;
+    }
+    let by_key: BTreeMap<String, &crate::oracle::State> = block
+        .states
+        .iter()
+        .map(|(k, s)| (state_key(k), s))
+        .collect();
+    let mut shapes = Vec::with_capacity(count);
+    let mut default = 0;
+    let wanted = state_key(&block.default);
+    let mut full = true;
+    for i in 0..count {
+        let mut rest = i;
+        let mut parts = vec![String::new(); properties.len()];
+        for (slot, (name, values)) in properties.iter().enumerate().rev() {
+            parts[slot] = format!("{name}={}", values[rest % values.len()]);
+            rest /= values.len();
+        }
+        let key = state_key(&parts.join(","));
+        if key == wanted {
+            default = i;
+        }
+        let state = by_key.get(&key)?;
+        let boxes = state.collision.as_array()?.clone();
+        full &= boxes.len() == 1 && boxes[0] == json!([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        shapes.push(Value::Array(boxes));
+    }
+    let base = by_key.get(&wanted)?;
+    Some(json!({
+        "template": if full { "minecraft:stone" } else { "minecraft:glass" },
+        "properties": {
+            "hardness": base.hardness,
+            "explosion_resistance": block.explosion_resistance,
+            "friction": block.friction,
+            "light": base.emission,
+            "requires_tool": base.requires_tool,
+        },
+        "states": {
+            "properties": properties.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
+            "default": default,
+            "shapes": shapes,
+        },
+    }))
+}
+
 pub fn carry(
     jar: &Path,
     info: &JarInfo,
@@ -974,6 +1037,21 @@ pub fn carry(
                 break;
             };
             let Some(choice) = facts.template(full, allowed) else {
+                // On a world whose mods run on a NeoForge server (the bridge), the
+                // client only draws the block: it keeps its own states and shapes.
+                if server_blocks()
+                    && let Some(mut v) = own_states(block)
+                {
+                    if block.item == *full {
+                        declared.insert(full.clone());
+                    } else {
+                        v["item"] = json!(false);
+                    }
+                    let template = v["template"].as_str().unwrap_or_default().to_owned();
+                    write_decl("block", b, &v)?;
+                    report.blocks.insert(b.to_owned(), template);
+                    continue;
+                }
                 let props: Vec<&str> = block.properties.keys().map(String::as_str).collect();
                 let why = format!(
                     "no vanilla {} with properties [{}]",
