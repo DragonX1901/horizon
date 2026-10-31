@@ -336,10 +336,11 @@ impl BlockFacts {
             let state = registry.state(id).ok_or("missing registry state")?;
             let sound = &entry.sound;
             let prop = |k: &str| state.properties.get(k).map(String::as_str);
-            let (fluid, fluid_level, fluid_falling) = match state.name.as_str() {
+            let fluid_name = entry.fluid.as_deref().unwrap_or(state.name.as_str());
+            let (fluid, fluid_level, fluid_falling) = match fluid_name {
                 "minecraft:water" | "minecraft:lava" => {
                     let level: u8 = prop("level").and_then(|v| v.parse().ok()).unwrap_or(0);
-                    let kind = if state.name == "minecraft:water" {
+                    let kind = if fluid_name == "minecraft:water" {
                         Fluid::Water
                     } else {
                         Fluid::Lava

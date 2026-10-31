@@ -475,7 +475,8 @@ impl MeshTables {
                 emission: s.emission,
                 tier: hdr_tier(name, s.emission),
                 emissive,
-                fluid: FluidState::from_block(state)?,
+                fluid: modded_fluid(state, &s.fluid)
+                    .map_or_else(|| FluidState::from_block(state), Ok)?,
                 model: s.render_shape == RenderShape::Model,
                 block_entity: s.block_entity,
                 tints,
@@ -687,6 +688,25 @@ pub const VERY_BRIGHT: u8 = 4;
 /// `color` marked as shining at `tier` (0 to `VERY_BRIGHT`).
 pub fn emitting(color: u32, tier: u8) -> u32 {
     color & !EMISSION_BITS | u32::from(15 - tier.min(VERY_BRIGHT)) << 24
+}
+/// A content mod's fluid block (its gameplay row names the vanilla fluid it flows as): that
+/// fluid's state at its level.
+fn modded_fluid(
+    state: &horizon_world::chunk::BlockState,
+    fluid: &crate::blocks::Fluid,
+) -> Option<FluidState> {
+    use crate::blocks::Fluid;
+    let name = match fluid {
+        Fluid::Water => "minecraft:water",
+        Fluid::Lava => "minecraft:lava",
+        _ => return None,
+    };
+    if state.name.starts_with("minecraft:") || !state.properties.contains_key("level") {
+        return None;
+    }
+    let mut vanilla = state.clone();
+    vanilla.name = name.into();
+    FluidState::from_block(&vanilla).ok()
 }
 /// The HDR tier of block `name` (no namespace), which emits light `level`.
 pub fn hdr_tier(name: &str, level: u8) -> u8 {

@@ -1,9 +1,10 @@
-//! `horizon-neoforge-host --server-dir DIR --world DIR --resources DIR [--java PATH] [--name NAME]`:
-//! a modded single-player world, started and driven by the game (see `host.rs`).
+//! `horizon-neoforge-host --server-dir DIR --world DIR [--resources DIR] [--java PATH] [--name NAME]`:
+//! a modded single-player world, started and driven by the game (see `host.rs`). Without
+//! `--resources`, the game sends them on stdin once loaded.
 use horizon_neoforge_bridge::host::{HostOptions, run};
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: horizon-neoforge-host --server-dir DIR --world DIR --resources DIR [--java PATH] [--name NAME] [--owner PLAYER]";
+const USAGE: &str = "usage: horizon-neoforge-host --server-dir DIR --world DIR [--resources DIR] [--java PATH] [--name NAME] [--owner PLAYER]";
 
 fn main() {
     let (mut server_dir, mut world, mut resources) = (None, None, None);
@@ -29,7 +30,7 @@ fn main() {
             }
         }
     }
-    let (Some(server_dir), Some(world), Some(resources)) = (server_dir, world, resources) else {
+    let (Some(server_dir), Some(world)) = (server_dir, world) else {
         eprintln!("{USAGE}");
         std::process::exit(2);
     };

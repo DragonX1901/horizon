@@ -11,7 +11,9 @@
 use super::*;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::Mutex;
+use std::sync::mpsc::{Receiver, channel};
 
 /// The file that makes a world modded.
 pub(super) const MARKER: &str = "horizon-neoforge.txt";
@@ -38,20 +40,49 @@ pub(super) fn marker(world: &Path) -> Option<Marker> {
 pub(super) struct ModdedHost {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    /// The loopback port, once the server is up (taken by the join).
+    ready: Option<Receiver<u16>>,
+    /// The LAN port, after `lan`.
+    lan_port: Receiver<u16>,
     paused: bool,
     lan: Option<u16>,
 }
 
+/// A modded world's server started with the game (`--world`), booting while the game loads:
+/// the world's folder and its host.
+static EARLY: Mutex<Option<(PathBuf, ModdedHost)>> = Mutex::new(None);
+
+/// Start the server of the world the game was asked to open (`--world`), when it is modded, so
+/// that NeoForge boots (about 40 s with a big pack) while the game loads its own resources.
+pub(super) fn start_early(options: &Options) {
+    let Some(folder) = &options.world else { return };
+    let Ok(dir) = std::env::current_dir().map(|d| d.join("saves").join(folder)) else {
+        return;
+    };
+    let Some(marker) = marker(&dir) else { return };
+    let player = options.player_name();
+    match ModdedHost::spawn(&marker, &dir, folder, &player) {
+        Ok(host) => *EARLY.lock().unwrap_or_else(|e| e.into_inner()) = Some((dir, host)),
+        Err(e) => log::warn!("Heisen: the modded world's server did not start early: {e}"),
+    }
+}
+
+/// The host started early for `world`, if any.
+pub(super) fn take_early(world: &Path) -> Option<ModdedHost> {
+    let mut early = EARLY.lock().unwrap_or_else(|e| e.into_inner());
+    match early.take() {
+        Some((dir, host)) if dir == world => Some(host),
+        other => {
+            *early = other;
+            None
+        }
+    }
+}
+
 impl ModdedHost {
-    /// Start the world's server and wait for it: the loopback port to join.
-    pub fn start(
-        marker: &Marker,
-        world: &Path,
-        resources: &Path,
-        name: &str,
-        owner: &str,
-    ) -> Result<(Self, u16)> {
+    /// Start the world's server without waiting for it: [`Self::join_address`] is where the
+    /// game joins, once it is up.
+    pub fn spawn(marker: &Marker, world: &Path, name: &str, owner: &str) -> Result<Self> {
         let exe = std::env::current_exe()?.with_file_name(format!(
             "horizon-neoforge-host{}",
             std::env::consts::EXE_SUFFIX
@@ -61,8 +92,6 @@ impl ModdedHost {
             .arg(&marker.server)
             .arg("--world")
             .arg(world)
-            .arg("--resources")
-            .arg(resources)
             .arg("--name")
             .arg(name)
             .arg("--owner")
@@ -79,16 +108,38 @@ impl ModdedHost {
             .map_err(|e| format!("Could not start {}: {e}", exe.display()))?;
         let stdin = child.stdin.take().ok_or("no host stdin")?;
         let mut stdout = BufReader::new(child.stdout.take().ok_or("no host stdout")?);
-        let port = read_port(&mut stdout, "HORIZON_HOST_READY")
-            .ok_or("The modded world's server stopped while starting; see the log")?;
-        let host = Self {
+        let (ready_tx, ready) = channel();
+        let (lan_tx, lan_port) = channel();
+        std::thread::Builder::new()
+            .name("modded-host".into())
+            .spawn(move || {
+                if let Some(port) = read_port(&mut stdout, "HORIZON_HOST_READY") {
+                    let _ = ready_tx.send(port);
+                }
+                while let Some(port) = read_port(&mut stdout, "HORIZON_HOST_LAN") {
+                    let _ = lan_tx.send(port);
+                }
+            })?;
+        Ok(Self {
             child,
             stdin,
-            stdout,
+            ready: Some(ready),
+            lan_port,
             paused: false,
             lan: None,
-        };
-        Ok((host, port))
+        })
+    }
+
+    /// The address the game joins: the network thread waits there for the server to come up
+    /// (horizon_client::neoforge::local_host), so the window keeps drawing meanwhile.
+    pub fn join_address(&mut self, resources: &Path) -> Result<String> {
+        let ready = self
+            .ready
+            .take()
+            .ok_or("the modded world's server was joined already")?;
+        // The game's loaded resources, mods' content included: the bridge translates with them.
+        self.send(&format!("resources {}", resources.display()));
+        Ok(horizon_client::neoforge::local_host(ready))
     }
 
     fn send(&mut self, command: &str) {
@@ -111,8 +162,10 @@ impl ModdedHost {
             return Ok(port);
         }
         self.send("lan");
-        let port = read_port(&mut self.stdout, "HORIZON_HOST_LAN")
-            .ok_or("the modded world's server stopped")?;
+        let port = self
+            .lan_port
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .map_err(|_| "the modded world's server stopped")?;
         self.lan = Some(port);
         Ok(port)
     }

@@ -24,8 +24,9 @@ pub struct HostOptions {
     pub server_dir: PathBuf,
     /// The world folder.
     pub world: PathBuf,
-    /// The client's resources, for play translation.
-    pub resources: PathBuf,
+    /// The client's resources, for play translation. None: the game sends them on stdin
+    /// (`resources <path>`) once it has loaded them, which lets the server boot meanwhile.
+    pub resources: Option<PathBuf>,
     pub java: PathBuf,
     /// The world's name, for the LAN announcement.
     pub name: String,
@@ -179,13 +180,28 @@ pub fn run(options: HostOptions) -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("no server stdin"))?,
     ));
     wait_until_ready(&mut child, options.owner.clone(), server_stdin.clone())?;
+    let mut input = std::io::stdin().lock().lines();
+    let resources = match options.resources.clone() {
+        Some(r) => r,
+        None => loop {
+            match input.next().transpose()?.as_deref().map(str::trim) {
+                Some(line) if line.starts_with("resources ") => break PathBuf::from(&line[10..]),
+                Some("stop") | None => {
+                    console(&server_stdin, "stop");
+                    child.wait()?;
+                    return Ok(());
+                }
+                Some(_) => {}
+            }
+        },
+    };
     // The owner's listener lets one player in, whoever else is playing: a second
     // login there is refused until LAN is open, and LAN players join on their own.
     let owner_bridge = Options {
         server_host: "127.0.0.1".into(),
         server_port,
         dump_dir: None,
-        resources: Some(options.resources.clone()),
+        resources: Some(resources),
         players: Arc::new(AtomicUsize::new(0)),
         authenticate: None,
         max_players: Some(1),
@@ -205,7 +221,7 @@ pub fn run(options: HostOptions) -> std::io::Result<()> {
     println!("HORIZON_HOST_READY {owner_port}");
     let lan_open = Arc::new(AtomicBool::new(false));
     let mut paused = false;
-    for line in std::io::stdin().lock().lines() {
+    for line in input {
         match line?.trim() {
             "pause" if !paused => {
                 paused = true;

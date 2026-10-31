@@ -790,6 +790,13 @@ impl<'a> Plan<'a> {
                         row.set("item", J::Str("minecraft:air".into()));
                     }
                     self.override_gameplay(b, &mut row);
+                    // A mod's fluid block flows and draws as its template's fluid.
+                    if matches!(
+                        b.decl.template.as_str(),
+                        "minecraft:water" | "minecraft:lava"
+                    ) {
+                        row.set("fluid", J::Str(b.decl.template.clone()));
+                    }
                     if let Some(shapes) = &b.shapes {
                         let shape = &shapes[i];
                         let boxes = shape

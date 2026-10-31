@@ -17,6 +17,50 @@ use std::time::Duration;
 /// The bridge already started for each server address: its loopback port.
 static BRIDGES: Mutex<Option<HashMap<String, u16>>> = Mutex::new(None);
 
+/// The address prefix of a modded single-player world whose server is still starting.
+const LOCAL_HOST: &str = "heisen-modded:";
+
+/// Modded worlds' servers being started: the port each one sends once the owner can join.
+static STARTING: Mutex<Option<HashMap<String, std::sync::mpsc::Receiver<u16>>>> = Mutex::new(None);
+
+/// An address to join a modded world's server at, once `ready` names its port.
+pub fn local_host(ready: std::sync::mpsc::Receiver<u16>) -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let address = format!(
+        "{LOCAL_HOST}{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    STARTING
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(address.clone(), ready);
+    address
+}
+
+/// For a [`local_host`] address: wait for its server (the network thread, with `status`
+/// shown meanwhile), and the loopback address it listens on.
+pub fn wait_local(address: &str, status: impl Fn(&str)) -> Option<Result<String, String>> {
+    if !address.starts_with(LOCAL_HOST) {
+        return None;
+    }
+    let ready = STARTING
+        .lock()
+        .unwrap()
+        .as_mut()
+        .and_then(|s| s.remove(address));
+    let Some(ready) = ready else {
+        return Some(Err("The modded world's server is gone".into()));
+    };
+    status("Starting the world's mods...");
+    Some(
+        ready
+            .recv_timeout(Duration::from_secs(15 * 60))
+            .map(|port| format!("127.0.0.1:{port}"))
+            .map_err(|_| "The modded world's server stopped while starting; see the log".into()),
+    )
+}
+
 /// Where to connect for `address`: a loopback bridge when it is a NeoForge 1.21.1
 /// server, else None (join it directly).
 pub fn route(address: &str, resources: &Path) -> Result<Option<String>, String> {

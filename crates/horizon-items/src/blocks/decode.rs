@@ -180,6 +180,8 @@ object!(Entry<'a> {
     map_color: Option<u64> = None => value(unsigned),
     outline: Option<&'a RawValue> = None => typed,
     outline_edges: Option<&'a RawValue> = None => typed,
+    // A content mod's fluid block: the vanilla fluid it flows as (mod_content.rs).
+    fluid: Option<String> = None => value(text),
 });
 
 // Match Value::to_string identity without serializing: integer/float spelling is

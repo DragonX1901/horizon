@@ -9847,15 +9847,13 @@ impl Game<'_> {
         if let Some(marker) = modded::marker(&world_dir) {
             let shown = name.unwrap_or(folder).to_owned();
             let player = self.options.player_name();
-            let (host, port) = modded::ModdedHost::start(
-                &marker,
-                &world_dir,
-                &self.options.resources,
-                &shown,
-                &player,
-            )?;
-            self.join_server(&format!("127.0.0.1:{port}"), &player, None, None)?;
+            let mut host = match modded::take_early(&world_dir) {
+                Some(host) => host,
+                None => modded::ModdedHost::spawn(&marker, &world_dir, &shown, &player)?,
+            };
+            let address = host.join_address(&self.options.resources)?;
             self.modded = Some(host);
+            self.join_server(&address, &player, None, None)?;
             return Ok(());
         }
         if self
@@ -16820,6 +16818,7 @@ pub fn run() -> Result<()> {
     // Snapshots of derived tables live in the game folder, never beside the
     // shared resources.
     Behaviours::set_cache_dir(std::env::current_dir()?.join(".horizon-cache"));
+    modded::start_early(&options);
     if !synchronous_startup(&options) {
         return run_loading(options, early_settings, vanilla_root, None, started);
     }
