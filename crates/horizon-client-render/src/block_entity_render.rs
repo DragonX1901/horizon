@@ -334,6 +334,19 @@ fn intern(facing: &str) -> &'static str {
         _ => "down",
     }
 }
+/// A texture name for the lifetime of the game: each distinct name is kept once.
+fn intern_static(name: String) -> &'static str {
+    static NAMES: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+        std::sync::Mutex::new(None);
+    let mut names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    let names = names.get_or_insert_with(std::collections::HashSet::new);
+    if let Some(&kept) = names.get(name.as_str()) {
+        return kept;
+    }
+    let kept: &'static str = Box::leak(name.into_boxed_str());
+    names.insert(kept);
+    kept
+}
 fn classify(name: &str, prop: &dyn Fn(&str) -> Option<String>) -> Kind {
     let name = name.strip_prefix("minecraft:").unwrap_or(name);
     let facing = || intern(&prop("facing").unwrap_or_default());
@@ -377,6 +390,14 @@ fn classify(name: &str, prop: &dyn Fn(&str) -> Option<String>) -> Kind {
             wall,
             angle,
         };
+    }
+    // A mod's chest: its textures as mod_entity_blocks.py names them
+    // (`<ns>:entity/chest/<block>[_left|_right]`).
+    if let Some((ns, path)) = name.split_once(':')
+        && path.ends_with("_chest")
+    {
+        let texture = |part: &str| intern_static(format!("{ns}:entity/chest/{path}{part}"));
+        return chest(texture(""), texture("_left"), texture("_right"));
     }
     let unwaxed = name.strip_prefix("waxed_").unwrap_or(name);
     match unwaxed {
