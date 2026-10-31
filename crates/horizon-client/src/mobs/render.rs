@@ -925,6 +925,13 @@ pub fn base_transform(m: &Mob, alpha: f32, camera: glam::DVec3) -> glam::Mat4 {
 /// `base_transform` from a pose of the entity's origin (`EntityRenderDispatcher.submit`
 /// under a pose stack, as `SpawnerRenderer` draws the mob inside a spawner).
 pub fn base_transform_at(m: &Mob, alpha: f32, origin: glam::Mat4) -> glam::Mat4 {
+    // A mod mob's own look may set its size, about its feet.
+    let origin = match &m.modded_look {
+        Some(look) if look.scale != 1.0 => {
+            origin * glam::Mat4::from_scale(glam::Vec3::splat(look.scale))
+        }
+        _ => origin,
+    };
     let mut body = m.previous_body_yaw + wrap(m.body_yaw - m.previous_body_yaw) * alpha;
     if shaking(m) {
         // LivingEntityRenderer.setupRotations: a rapid wobble.

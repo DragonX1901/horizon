@@ -321,7 +321,28 @@ pub fn species_look(root: &Path, species: &str) -> Option<super::ModdedLook> {
         model: std::sync::Arc::new(model),
         texture,
         animations: animations.map(std::sync::Arc::new),
+        scale: species_scale(root, ns, name).unwrap_or(1.0),
     })
+}
+
+/// A species' `baseScale` from its data file (`data/ns/species/**/name.json`).
+fn species_scale(root: &Path, ns: &str, name: &str) -> Option<f32> {
+    let mut stack = vec![root.join("data").join(ns).join("species")];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).ok()?.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p
+                .file_name()
+                .is_some_and(|f| f == format!("{name}.json").as_str())
+            {
+                let v: Value = serde_json::from_slice(&std::fs::read(&p).ok()?).ok()?;
+                return v["baseScale"].as_f64().map(|s| s as f32);
+            }
+        }
+    }
+    None
 }
 
 /// One Bedrock animation as a keyframe animation in Java model space: rotations

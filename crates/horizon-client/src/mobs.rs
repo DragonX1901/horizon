@@ -418,6 +418,8 @@ pub struct ModdedLook {
     pub model: Arc<Part>,
     pub texture: String,
     pub animations: Option<Arc<bedrock::Animations>>,
+    /// Drawn at this size (Cobblemon's species `baseScale`).
+    pub scale: f32,
 }
 
 impl MobType {
