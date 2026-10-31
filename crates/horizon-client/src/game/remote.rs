@@ -2502,7 +2502,31 @@ impl Game<'_> {
                 // Entity.DATA_SHARED_FLAGS_ID, DATA_CUSTOM_NAME and
                 // DATA_CUSTOM_NAME_VISIBLE: server NPCs and holograms rely on
                 // these instead of saved NBT.
+                // A mod mob's look named by its entity data (Cobblemon's species).
+                let modded = self.mobs.iter().any(|m| {
+                    m.id == p.id as u32 && m.species() == horizon_client::mobs::Species::Modded
+                });
+                let look = if modded {
+                    p.values.iter().find_map(|(_, _, value)| match value {
+                        Value::String(s) if s.contains(':') => {
+                            let root = &self.options.resources;
+                            self.modded_looks
+                                .entry(s.clone())
+                                .or_insert_with(|| {
+                                    horizon_client::mobs::bedrock::species_look(root, s)
+                                        .map(Arc::new)
+                                })
+                                .clone()
+                        }
+                        _ => None,
+                    })
+                } else {
+                    None
+                };
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
+                    if look.is_some() {
+                        m.modded_look = look;
+                    }
                     for (index, _, value) in &p.values {
                         match (index, value) {
                             (0, Value::Byte(flags)) => {

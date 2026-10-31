@@ -833,8 +833,23 @@ impl Play {
                 Some(stack) => Some(ParticleData::Item(stack)),
                 None => return Ok(None),
             },
-            // Vibration and every mod's particle with options: not yet.
-            "minecraft:vibration" => return Ok(None),
+            // PositionSource (0: a block position, 1: an entity and its y offset),
+            // then the arrival time in ticks.
+            "minecraft:vibration" => {
+                use horizon_protocol::entity_data::PositionSource;
+                let source = match r.varint()? {
+                    0 => PositionSource::Block(unpack_pos(r.i64()?)),
+                    1 => PositionSource::Entity {
+                        id: r.varint()?,
+                        y_offset: r.f32()?,
+                    },
+                    _ => return Ok(None),
+                };
+                Some(ParticleData::Vibration {
+                    source,
+                    ticks: r.varint()?,
+                })
+            }
             n if !n.starts_with("minecraft:") => return Ok(None),
             _ => None,
         };

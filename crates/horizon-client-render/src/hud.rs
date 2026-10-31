@@ -463,6 +463,15 @@ impl HudAtlas {
             for ns in namespaces.flatten() {
                 if ns.file_name() != "minecraft" {
                     walk(&ns.path().join("textures/entity"), &mut files);
+                    // Cobblemon's species textures, base ones only
+                    // (textures/pokemon/<n>_<name>/<name>.png).
+                    let mut pokemon = Vec::new();
+                    walk(&ns.path().join("textures/pokemon"), &mut pokemon);
+                    files.extend(pokemon.into_iter().filter(|p| {
+                        let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned());
+                        let dir = p.parent().and_then(|d| d.file_name()).map(|d| d.to_string_lossy().into_owned());
+                        matches!((stem, dir), (Some(s), Some(d)) if d.split_once('_').is_some_and(|(_, n)| n == s))
+                    }));
                 }
             }
         }

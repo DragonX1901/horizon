@@ -2134,6 +2134,8 @@ struct Game<'a> {
     integrated: Option<integrated::Integrated>,
     /// A modded world's NeoForge server (`game/modded.rs`), while one is open.
     modded: Option<modded::ModdedHost>,
+    /// Mod mobs' looks by the entity data string naming them (mobs/bedrock.rs).
+    modded_looks: HashMap<String, Option<Arc<horizon_client::mobs::ModdedLook>>>,
     /// The shapes of the open world's levels, from its dimension types.
     level_shapes: horizon_client::chunk::LevelShapes,
     /// This game is that server thread's (game/integrated.rs).
@@ -15204,6 +15206,7 @@ impl<'a> Game<'a> {
             lan: None,
             integrated: None,
             modded: None,
+            modded_looks: HashMap::new(),
             level_shapes: Default::default(),
             serving: None,
             world_options: None,

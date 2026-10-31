@@ -660,7 +660,8 @@ pub fn setup(
 ) {
     // A mod's mob: its own idle loop, and its walk while it moves.
     if m.species() == super::Species::Modded {
-        if let Some(a) = &m.kind.modded_animations {
+        let own = m.modded_look.as_ref().and_then(|l| l.animations.as_ref());
+        if let Some(a) = own.or(m.kind.modded_animations.as_ref()) {
             if let Some(idle) = &a.idle {
                 idle.apply((s.age * 50.0) as i64, 1.0, p);
             }

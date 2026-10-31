@@ -1374,12 +1374,16 @@ fn render_visible(
 ) {
     let overlay = u32::from(red_overlay(m));
     let s = anim::state(m, alpha);
-    let (model_key, texture) = body(m);
-    let model = m
+    let (model_key, mut texture) = body(m);
+    let mut model = m
         .kind
         .layer(&model_key)
         .cloned()
         .unwrap_or_else(|| m.kind.model.clone());
+    if let Some(look) = &m.modded_look {
+        model = look.model.clone();
+        texture = look.texture.clone();
+    }
     let mut poses = Poses::new(&model);
     anim::setup(m, &s, &mut poses, &data.animations);
     let draw_body = |out: &mut Vec<Vertex>| {

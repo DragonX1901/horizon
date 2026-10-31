@@ -411,6 +411,15 @@ fn exact_attributes(bytes: &[u8]) -> HashMap<String, HashMap<String, f64>> {
 pub struct MobTypes {
     pub types: HashMap<String, MobType>,
 }
+/// One mod mob's own look, chosen from its entity data (Cobblemon's species):
+/// drawn in place of its type's model and texture.
+#[derive(Clone, Debug)]
+pub struct ModdedLook {
+    pub model: Arc<Part>,
+    pub texture: String,
+    pub animations: Option<Arc<bedrock::Animations>>,
+}
+
 impl MobType {
     /// A mob a mod adds (`Species::Modded`): `base`'s plain behaviour tables
     /// with the mod's id and size, drawn as its hitbox until its own model is
@@ -1122,6 +1131,8 @@ impl Extra {
 
 #[derive(Clone, Debug)]
 pub struct Mob {
+    /// A mod mob's own look from its entity data (`Species::Modded`).
+    pub modded_look: Option<Arc<ModdedLook>>,
     pub id: u32,
     pub kind: Arc<MobType>,
     pub position: Vec3,
@@ -2263,6 +2274,7 @@ impl Mob {
         );
         let _ = random.next_int();
         let mut mob = Self {
+            modded_look: None,
             id,
             health: kind.max_health,
             position,

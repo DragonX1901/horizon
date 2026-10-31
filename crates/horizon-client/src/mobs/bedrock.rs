@@ -250,16 +250,77 @@ pub fn load_animations(root: &Path, id: &str) -> Option<Animations> {
     .iter()
     .map(|dir| assets.join(dir).join(format!("{name}.animation.json")))
     .find(|p| p.exists())?;
+    animations_from(&file)
+}
+
+/// A `.animation.json`'s idle and walk: on-ground ones first (Cobblemon's
+/// `ground_idle`, `ground_walk`), else any idle and any walk or move.
+fn animations_from(file: &Path) -> Option<Animations> {
     let doc: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
     let all = doc["animations"].as_object()?;
     let find = |words: &[&str]| {
-        all.iter()
-            .find(|(k, _)| words.iter().any(|w| k.to_lowercase().contains(w)))
-            .map(|(_, v)| animation(v))
+        words.iter().find_map(|w| {
+            all.iter()
+                .find(|(k, _)| k.to_lowercase().contains(w))
+                .map(|(_, v)| animation(v))
+        })
     };
     Some(Animations {
-        idle: find(&["idle"]),
-        walk: find(&["walk", "move"]),
+        idle: find(&["ground_idle", "idle"]),
+        walk: find(&["ground_walk", "walk", "move"]),
+    })
+}
+
+/// The look of a mob whose entity data names a species with Cobblemon's
+/// resolver files (`assets/ns/bedrock/pokemon/resolvers/<n>_<name>/*.json`):
+/// its base variation's model and texture, and the species' animations.
+pub fn species_look(root: &Path, species: &str) -> Option<super::ModdedLook> {
+    let (ns, name) = species.split_once(':')?;
+    let bedrock = root.join("assets").join(ns).join("bedrock/pokemon");
+    let folder = std::fs::read_dir(bedrock.join("resolvers"))
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|f| f.split_once('_').is_some_and(|(_, n)| n == name))?;
+    let mut resolvers: Vec<Value> = std::fs::read_dir(bedrock.join("resolvers").join(&folder))
+        .ok()?
+        .flatten()
+        .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+        .filter(|v: &Value| v["species"].as_str() == Some(species))
+        .collect();
+    resolvers.sort_by_key(|v| v["order"].as_i64().unwrap_or(0));
+    let base = resolvers
+        .iter()
+        .flat_map(|r| r["variations"].as_array().into_iter().flatten())
+        .find(|v| v["aspects"].as_array().is_none_or(|a| a.is_empty()) && v["model"].is_string())?;
+    let model_file = base["model"]
+        .as_str()?
+        .split_once(':')?
+        .1
+        .trim_end_matches(".geo");
+    let geo = bedrock
+        .join("models")
+        .join(&folder)
+        .join(format!("{model_file}.geo.json"));
+    let model = parse(&serde_json::from_slice(&std::fs::read(geo).ok()?).ok()?)?;
+    // cobblemon:textures/pokemon/0014_kakuna/kakuna.png -> cobblemon:pokemon/0014_kakuna/kakuna
+    let texture = base["texture"].as_str().and_then(|t| {
+        let (tns, path) = t.split_once(':')?;
+        Some(format!(
+            "{tns}:{}",
+            path.strip_prefix("textures/")?.strip_suffix(".png")?
+        ))
+    })?;
+    let animations = animations_from(
+        &bedrock
+            .join("animations")
+            .join(&folder)
+            .join(format!("{model_file}.animation.json")),
+    );
+    Some(super::ModdedLook {
+        model: std::sync::Arc::new(model),
+        texture,
+        animations: animations.map(std::sync::Arc::new),
     })
 }
 
