@@ -118,6 +118,8 @@ pub struct Context {
     /// `brigadier:string`, which stands in for parsers it lacks.
     pub arguments: HashMap<i32, i32>,
     pub string_argument: Option<i32>,
+    /// The client's `minecraft:generic_9x1` … `generic_9x6` menus, for mod menus.
+    pub generic_menus: [Option<i32>; 6],
     /// Data component types: server id → client id.
     pub components: HashMap<i32, i32>,
     /// The client's item for server items it lacks.
@@ -140,6 +142,56 @@ pub struct Play {
     input: u8,
     /// Items: client id → server id, for stacks the client sends.
     items_back: HashMap<i32, i32>,
+    /// Mod menus the client lacks: waiting for their contents (title), and
+    /// shown as chests (by container id).
+    pending_screens: HashMap<i32, horizon_world::nbt::Tag>,
+    /// NeoForge's split packets in play.
+    splitter: crate::neoforge::Splitter,
+    generic: HashMap<i32, Generic>,
+}
+
+/// A mod's menu shown as a chest: its `mod_slots` fill the first of `rows`
+/// rows of nine, the rest padding, then the player's 36 slots.
+struct Generic {
+    mod_slots: usize,
+    rows: usize,
+}
+impl Generic {
+    fn shown(&self) -> usize {
+        self.mod_slots.min(self.rows * 9)
+    }
+    /// The server's slot list as the chest's: mod slots, padding, the player's.
+    fn to_client(
+        &self,
+        mut items: Vec<Option<horizon_protocol::item::Stack>>,
+    ) -> Vec<Option<horizon_protocol::item::Stack>> {
+        let player = items.split_off(self.mod_slots.min(items.len()));
+        items.truncate(self.shown());
+        items.resize(self.rows * 9, None);
+        items.extend(player);
+        items
+    }
+    fn client_slot(&self, server: i16) -> Option<i16> {
+        let s = usize::try_from(server).ok()?;
+        if s < self.mod_slots {
+            (s < self.shown()).then_some(server)
+        } else {
+            Some((s - self.mod_slots + self.rows * 9) as i16)
+        }
+    }
+    fn server_slot(&self, client: i16) -> Option<i16> {
+        // -999: a click outside the window (drop the carried stack).
+        let Ok(c) = usize::try_from(client) else {
+            return Some(client);
+        };
+        if c < self.shown() {
+            Some(client)
+        } else if c < self.rows * 9 {
+            None
+        } else {
+            Some((c - self.rows * 9 + self.mod_slots) as i16)
+        }
+    }
 }
 
 impl Play {
@@ -162,6 +214,9 @@ impl Play {
             .map(|(&server, &client)| (client, server))
             .collect();
         Self {
+            pending_screens: HashMap::new(),
+            splitter: Default::default(),
+            generic: HashMap::new(),
             items_back,
             ctx,
             clientbound,
@@ -392,21 +447,51 @@ impl Play {
             cb::CONTAINER_SET_CONTENT => {
                 let container = i32::from(r.u8()?);
                 let state = r.varint()?;
-                let items = (0..r.count(1 << 12)?)
+                let mut items: Vec<_> = (0..r.count(1 << 12)?)
                     .map(|_| self.stack(&mut r))
                     .collect::<Result<_>>()?;
                 let carried = self.stack(&mut r)?;
-                C777::ContainerSetContent(p777::ContainerSetContent {
-                    container,
-                    state,
-                    items,
-                    carried,
-                })
+                let mut out = Vec::new();
+                // A mod's menu the client lacks opens as a chest of enough rows.
+                if let Some(title) = self.pending_screens.remove(&container) {
+                    let mod_slots = items.len().saturating_sub(36);
+                    let rows = mod_slots.div_ceil(9).clamp(1, 6);
+                    if let Some(menu) = self.ctx.generic_menus[rows - 1] {
+                        self.generic.insert(container, Generic { mod_slots, rows });
+                        out.push(
+                            C777::OpenScreen(p777::OpenScreen {
+                                container,
+                                menu,
+                                title,
+                            })
+                            .encode(),
+                        );
+                    }
+                }
+                if let Some(g) = self.generic.get(&container) {
+                    items = g.to_client(items);
+                }
+                out.push(
+                    C777::ContainerSetContent(p777::ContainerSetContent {
+                        container,
+                        state,
+                        items,
+                        carried,
+                    })
+                    .encode(),
+                );
+                return Ok(out);
             }
             cb::CONTAINER_SET_SLOT => {
                 let container = i32::from(r.i8()?);
                 let state = r.varint()?;
-                let slot = r.i16()?;
+                let mut slot = r.i16()?;
+                if let Some(g) = self.generic.get(&container) {
+                    match g.client_slot(slot) {
+                        Some(s) => slot = s,
+                        None => return Ok(Vec::new()),
+                    }
+                }
                 let item = self.stack(&mut r)?;
                 C777::ContainerSetSlot(p777::ContainerSetSlot {
                     container,
@@ -423,19 +508,35 @@ impl Play {
                     value: r.i16()?,
                 })
             }
-            cb::CONTAINER_CLOSE => C777::ContainerClose(p777::ContainerClose {
-                container: i32::from(r.u8()?),
-            }),
+            cb::CONTAINER_CLOSE => {
+                let container = i32::from(r.u8()?);
+                self.generic.remove(&container);
+                C777::ContainerClose(p777::ContainerClose { container })
+            }
             cb::OPEN_SCREEN => {
                 let container = r.varint()?;
-                let Some(&menu) = self.ctx.menus.get(&r.varint()?) else {
-                    return Ok(Vec::new());
-                };
-                C777::OpenScreen(p777::OpenScreen {
-                    container,
-                    menu,
-                    title: r.nbt()?,
-                })
+                let menu = r.varint()?;
+                return Ok(self.open_screen(container, menu, r.nbt()?));
+            }
+            cb::CUSTOM_PAYLOAD => {
+                let channel = r.string(32767)?;
+                match channel.as_str() {
+                    // NeoForge's open screen for menus with extra data (most mods' machines).
+                    crate::neoforge::ADVANCED_OPEN_SCREEN => {
+                        let container = r.varint()?;
+                        let menu = r.varint()?;
+                        return Ok(self.open_screen(container, menu, r.nbt()?));
+                    }
+                    crate::neoforge::SPLIT => {
+                        if let Some(whole) = self.splitter.accept(r.rest())? {
+                            let mut w = Reader::new(&whole);
+                            let id = w.varint()?;
+                            return self.clientbound(id, w.rest());
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(Vec::new());
             }
             cb::SET_CARRIED_ITEM => C777::SetHeldSlot(p777::SetHeldSlot {
                 slot: i32::from(r.i8()?),
@@ -801,6 +902,31 @@ impl Play {
         })
     }
 
+    /// OpenScreen: the menu by its client id, or, for a mod's menu the client
+    /// lacks, a chest once its contents tell how many slots it has.
+    fn open_screen(
+        &mut self,
+        container: i32,
+        menu: i32,
+        title: horizon_world::nbt::Tag,
+    ) -> Vec<Vec<u8>> {
+        self.generic.remove(&container);
+        match self.ctx.menus.get(&menu) {
+            Some(&menu) => vec![
+                C777::OpenScreen(p777::OpenScreen {
+                    container,
+                    menu,
+                    title,
+                })
+                .encode(),
+            ],
+            None => {
+                self.pending_screens.insert(container, title);
+                Vec::new()
+            }
+        }
+    }
+
     /// A sound holder: by the client's id, or inline by name for a sound the
     /// client's registry lacks (a mod's, played from its sound files).
     #[allow(clippy::type_complexity)]
@@ -1031,16 +1157,26 @@ impl Play {
             }
             // 767's server runs the click itself and then corrects every slot the client
             // didn't claim: sending no claims re-syncs whatever the click changed.
-            S777::ContainerClick(c) => vec![packet(sb::CONTAINER_CLICK, &|w| {
-                w.i8(c.container as i8);
-                w.varint(c.state);
-                w.i16(c.slot);
-                w.i8(c.button);
-                w.varint(c.input);
-                w.varint(0);
-                w.varint(0);
-            })],
+            S777::ContainerClick(c) => {
+                let slot = match self.generic.get(&c.container) {
+                    Some(g) => match g.server_slot(c.slot) {
+                        Some(s) => s,
+                        None => return Ok(Vec::new()),
+                    },
+                    None => c.slot,
+                };
+                vec![packet(sb::CONTAINER_CLICK, &|w| {
+                    w.i8(c.container as i8);
+                    w.varint(c.state);
+                    w.i16(slot);
+                    w.i8(c.button);
+                    w.varint(c.input);
+                    w.varint(0);
+                    w.varint(0);
+                })]
+            }
             S777::ContainerClose(c) => {
+                self.generic.remove(&c.container);
                 vec![packet(sb::CONTAINER_CLOSE, &|w| w.u8(c.container as u8))]
             }
             S777::ContainerButtonClick(b) => vec![packet(sb::CONTAINER_BUTTON_CLICK, &|w| {
@@ -1236,6 +1372,27 @@ fn unpack_section(v: i64) -> [i32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mod_menus_as_chests() {
+        // 5 mod slots in one row of nine, then the player's 36.
+        let g = Generic {
+            mod_slots: 5,
+            rows: 1,
+        };
+        assert_eq!(g.client_slot(3), Some(3));
+        assert_eq!(g.client_slot(5), Some(9));
+        assert_eq!(g.server_slot(9), Some(5));
+        assert_eq!(g.server_slot(7), None);
+        assert_eq!(g.server_slot(-999), Some(-999));
+        let items: Vec<_> = (0..41)
+            .map(|i| Some(horizon_protocol::item::Stack::new(i, 1)))
+            .collect();
+        let shown = g.to_client(items);
+        assert_eq!(shown.len(), 45);
+        assert!(shown[5..9].iter().all(Option::is_none));
+        assert_eq!(shown[9].as_ref().unwrap().item, 5);
+    }
 
     #[test]
     fn positions_round_trip() {

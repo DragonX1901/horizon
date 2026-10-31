@@ -700,6 +700,9 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         entity_types,
         modded_entities,
         menus: remap("minecraft:menu"),
+        generic_menus: std::array::from_fn(|i| {
+            client_id("minecraft:menu", &format!("minecraft:generic_9x{}", i + 1))
+        }),
         components: remap("minecraft:data_component_type"),
         blocks: remap("minecraft:block"),
         effects: remap("minecraft:mob_effect"),

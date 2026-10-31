@@ -22,6 +22,8 @@ pub const FEATURE_FLAGS: &str = "neoforge:feature_flags";
 pub const FEATURE_FLAGS_ACK: &str = "neoforge:feature_flags_ack";
 pub const CONFIG_FILE: &str = "neoforge:config_file";
 pub const SPLIT: &str = "neoforge:split";
+/// NeoForge's open screen with a menu's extra data (play).
+pub const ADVANCED_OPEN_SCREEN: &str = "neoforge:advanced_open_screen";
 /// `minecraft:register` / `minecraft:unregister`: Dinnerbone's NUL-separated channel lists.
 pub const MC_REGISTER: &str = "minecraft:register";
 pub const MC_UNREGISTER: &str = "minecraft:unregister";
