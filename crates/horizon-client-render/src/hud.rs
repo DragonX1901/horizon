@@ -465,6 +465,25 @@ impl HudAtlas {
                     walk(&ns.path().join("textures/entity"), &mut files);
                     // Mods' particles (`<namespace>:particle/...`, particles.rs modded_set).
                     walk(&ns.path().join("textures/particle"), &mut files);
+                    // Mods' menu backgrounds (`<namespace>:gui/...`, game/mod_menus.rs).
+                    if let Ok(menus) = fs::read(ns.path().join("horizon/menus.json"))
+                        && let Ok(menus) = serde_json::from_slice::<serde_json::Value>(&menus)
+                    {
+                        let ns_name = ns.file_name().to_string_lossy().into_owned();
+                        for texture in menus
+                            .as_object()
+                            .into_iter()
+                            .flat_map(|m| m.values())
+                            .filter_map(|m| m["texture"].as_str())
+                        {
+                            if let Some(path) = texture.strip_prefix(&format!("{ns_name}:")) {
+                                let file = ns.path().join(format!("textures/{path}.png"));
+                                if file.exists() && !files.contains(&file) {
+                                    files.push(file);
+                                }
+                            }
+                        }
+                    }
                     // Cobblemon's species textures, base ones only
                     // (textures/pokemon/<n>_<name>/<name>.png).
                     let mut pokemon = Vec::new();

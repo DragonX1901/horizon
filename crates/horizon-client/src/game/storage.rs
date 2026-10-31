@@ -401,6 +401,9 @@ impl Game<'_> {
         oy: f32,
     ) {
         use horizon_client::hud::rgba;
+        if self.draw_mod_menu(batch, ox, oy) {
+            return;
+        }
         let atlas = &self.gui.atlas;
         let grey = rgba(64, 64, 64, 255);
         if self

@@ -68,6 +68,23 @@ pub fn read_names(data: &[u8]) -> Result<Vec<(i32, String)>> {
         .collect()
 }
 
+/// `horizon:mod_menu`: a mod menu the bridge opens as a chest is this menu type: (container id,
+/// menu type, the mod's own slot count). The game lays it out as the mod does, when it knows.
+pub const MOD_MENU: &str = "horizon:mod_menu";
+
+pub fn write_mod_menu(container: i32, menu: &str, slots: i32) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.varint(container);
+    w.string(menu);
+    w.varint(slots);
+    w.data
+}
+
+pub fn read_mod_menu(data: &[u8]) -> Result<(i32, String, i32)> {
+    let mut r = Reader::new(data);
+    Ok((r.varint()?, r.string(32767)?, r.varint()?))
+}
+
 /// `horizon:block_speeds`: how fast mods' turning blocks turn (a block entity's `Speed`, in
 /// Create's RPM), by position: (x, y, z, speed). The game turns their models.
 pub const BLOCK_SPEEDS: &str = "horizon:block_speeds";

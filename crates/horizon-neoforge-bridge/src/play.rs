@@ -107,6 +107,8 @@ pub struct Context {
     pub items: HashMap<i32, i32>,
     pub entity_types: HashMap<i32, i32>,
     pub menus: HashMap<i32, i32>,
+    /// Every menu type's name, by the server's id.
+    pub menu_names: HashMap<i32, String>,
     /// Sound events: server id → the client's id, or the name to send inline.
     pub sounds: HashMap<i32, std::result::Result<i32, String>>,
     /// Blocks (the registry, not states): server id → client id.
@@ -146,7 +148,7 @@ pub struct Play {
     items_back: HashMap<i32, i32>,
     /// Mod menus the client lacks: waiting for their contents (title), and
     /// shown as chests (by container id).
-    pending_screens: HashMap<i32, horizon_world::nbt::Tag>,
+    pending_screens: HashMap<i32, (horizon_world::nbt::Tag, i32)>,
     /// NeoForge's split packets in play.
     splitter: crate::neoforge::Splitter,
     generic: HashMap<i32, Generic>,
@@ -460,11 +462,22 @@ impl Play {
                 let carried = self.stack(&mut r)?;
                 let mut out = Vec::new();
                 // A mod's menu the client lacks opens as a chest of enough rows.
-                if let Some(title) = self.pending_screens.remove(&container) {
+                if let Some((title, server_menu)) = self.pending_screens.remove(&container) {
                     let mod_slots = items.len().saturating_sub(36);
                     let rows = mod_slots.div_ceil(9).clamp(1, 6);
                     if let Some(menu) = self.ctx.generic_menus[rows - 1] {
                         self.generic.insert(container, Generic { mod_slots, rows });
+                        if let Some(name) = self.ctx.menu_names.get(&server_menu) {
+                            let mut w = Writer::new();
+                            w.varint(horizon_protocol::ids::play::clientbound::CUSTOM_PAYLOAD);
+                            w.string(horizon_protocol::modded::MOD_MENU);
+                            w.bytes(&horizon_protocol::modded::write_mod_menu(
+                                container,
+                                name,
+                                mod_slots as i32,
+                            ));
+                            out.push(w.data);
+                        }
                         out.push(
                             C777::OpenScreen(p777::OpenScreen {
                                 container,
@@ -976,7 +989,7 @@ impl Play {
                 .encode(),
             ],
             None => {
-                self.pending_screens.insert(container, title);
+                self.pending_screens.insert(container, (title, menu));
                 Vec::new()
             }
         }

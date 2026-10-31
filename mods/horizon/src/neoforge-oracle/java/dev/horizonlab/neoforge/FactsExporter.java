@@ -149,6 +149,7 @@ public final class FactsExporter {
             }
             json.endArray();
             items();
+            menus();
             recipes();
             tags();
             json.endObject();
@@ -459,6 +460,66 @@ public final class FactsExporter {
                 json.name(name);
                 json.jsonValue(value.get().toString());
             }
+        }
+
+        /**
+         * The menu each mod block opens, as a fake player opening it would see it: by menu type,
+         * every slot's position in the screen and, for the player's own slots, their inventory
+         * index (-1 for the block's). The game lays mod menus out with it.
+         */
+        void menus() throws IOException {
+            json.name("menus");
+            json.beginObject();
+            Set<String> done = new TreeSet<>();
+            BlockPos at = FLOOR.above(2);
+            var player = net.neoforged.neoforge.common.util.FakePlayerFactory.getMinecraft(level);
+            for (Block block : BuiltInRegistries.BLOCK) {
+                ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+                if (!ours(id) || !(block instanceof net.minecraft.world.level.block.EntityBlock)) continue;
+                try {
+                    BlockState state = block.defaultBlockState();
+                    level.setBlock(at, state, 3);
+                    net.minecraft.world.MenuProvider provider = state.getMenuProvider(level, at);
+                    if (provider == null && level.getBlockEntity(at) instanceof net.minecraft.world.MenuProvider p) {
+                        provider = p;
+                    }
+                    if (provider == null) continue;
+                    var menu = provider.createMenu(1, player.getInventory(), player);
+                    if (menu == null) continue;
+                    String type;
+                    try {
+                        type = BuiltInRegistries.MENU.getKey(menu.getType()).toString();
+                    } catch (UnsupportedOperationException e) {
+                        continue;
+                    }
+                    if (!done.add(type)) continue;
+                    StringWriter buffer = new StringWriter();
+                    JsonWriter one = new JsonWriter(buffer);
+                    one.beginObject();
+                    one.name("block").value(id.toString());
+                    one.name("slots");
+                    one.beginArray();
+                    for (var slot : menu.slots) {
+                        one.beginArray();
+                        one.value(slot.x).value(slot.y);
+                        one.value(slot.container == player.getInventory() ? slot.getContainerSlot() : -1);
+                        one.endArray();
+                    }
+                    one.endArray();
+                    one.endObject();
+                    one.flush();
+                    json.name(type).jsonValue(buffer.toString());
+                } catch (RuntimeException | LinkageError e) {
+                    System.out.println("horizon-oracle: no menu for " + id + ": " + e);
+                } finally {
+                    try {
+                        level.setBlock(at, Blocks.AIR.defaultBlockState(), 3);
+                    } catch (RuntimeException e) {
+                        // Left as it is.
+                    }
+                }
+            }
+            json.endObject();
         }
 
         void recipes() throws IOException {

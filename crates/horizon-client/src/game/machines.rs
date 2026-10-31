@@ -1087,6 +1087,9 @@ impl Game<'_> {
         {
             return super::beacon::HEIGHT;
         }
+        if let Some(layout) = self.mod_menu_layout() {
+            return layout.height;
+        }
         if let Some(rows) = self.chest_rows() {
             // ContainerScreen: 114 + 18 per row.
             return 114.0 + rows as f32 * 18.0;

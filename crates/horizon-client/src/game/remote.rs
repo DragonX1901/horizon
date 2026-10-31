@@ -132,6 +132,9 @@ pub(super) struct Remote {
     pub(super) modded_particles: HashMap<i32, String>,
     /// How fast mods' turning blocks turn, by position (kinetic.rs).
     pub(super) block_speeds: HashMap<[i32; 3], f32>,
+    /// The open mod menu's layout (mod_menus.rs), and those read so far by menu type.
+    pub(super) mod_menu: Option<(i32, super::mod_menus::Layout)>,
+    pub(super) menu_layouts: HashMap<String, Option<super::mod_menus::Layout>>,
     lang: Arc<Language>,
     pub(super) registries: Arc<Dynamic>,
     joined: bool,
@@ -522,6 +525,8 @@ impl Game<'_> {
             voice: None,
             modded_particles: HashMap::new(),
             block_speeds: HashMap::new(),
+            mod_menu: None,
+            menu_layouts: HashMap::new(),
             lang,
             registries: Arc::new(Dynamic::default()),
             joined: false,
@@ -2186,6 +2191,11 @@ impl Game<'_> {
             // ClientCommonPacketListenerImpl.handlePing runs on the game
             // thread, after all preceding packets (especially teleports).
             C::Ping(p) => self.send(S::Pong(p)),
+            C::CustomPayload(p) if p.channel == horizon_protocol::modded::MOD_MENU => {
+                if let Ok((container, menu, _)) = horizon_protocol::modded::read_mod_menu(&p.data) {
+                    self.remote_mod_menu(container, &menu);
+                }
+            }
             C::CustomPayload(p) if p.channel == horizon_protocol::modded::BLOCK_SPEEDS => {
                 if let (Some(r), Ok(speeds)) = (
                     self.remote.as_mut(),

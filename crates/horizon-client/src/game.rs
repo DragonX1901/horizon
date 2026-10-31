@@ -152,6 +152,7 @@ mod minecarts;
 mod mob_blocks;
 mod mob_gear;
 mod mob_sounds;
+mod mod_menus;
 mod modded;
 mod mods;
 mod mount_menu;
@@ -7118,7 +7119,8 @@ impl Game<'_> {
             return position;
         }
         if let Some(p) = self
-            .station_slot_position(i)
+            .mod_menu_slot_position(i)
+            .or_else(|| self.station_slot_position(i))
             .or_else(|| self.machine_slot_position(i))
             .or_else(|| self.crafter_slot_position(i))
             .or_else(|| self.mount_slot_position(i))

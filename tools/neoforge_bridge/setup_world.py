@@ -26,6 +26,7 @@ server's mods/ folder; then join the server from the Multiplayer screen.
 """
 
 import argparse
+import re
 import json
 import os
 import shutil
@@ -110,6 +111,37 @@ def stage(mods, out):
     return out
 
 
+def words(text):
+    return {w for w in re.split(r"[_/.:]", text) if w and w not in {"gui", "container", "menu", "png", "textures"}}
+
+
+def write_menus(facts, mods_dir):
+    """Each mod menu's slot layout from the oracle, and the GUI texture its name points to,
+    as `assets/<ns>/horizon/menus.json` in the content mod that has the namespace."""
+    menus = json.loads(facts.read_text()).get("menus", {})
+    by_ns = {}
+    for menu, layout in menus.items():
+        by_ns.setdefault(menu.split(":")[0], {})[menu] = layout
+    count = 0
+    for ns, layouts in by_ns.items():
+        owner = next((m for m in mods_dir.iterdir() if (m / "assets" / ns).is_dir()), None)
+        if owner is None:
+            continue
+        gui = owner / "assets" / ns / "textures" / "gui"
+        textures = [p for p in gui.rglob("*.png")] if gui.is_dir() else []
+        for menu, layout in layouts.items():
+            want = words(menu.split(":")[1]) | words(layout.get("block", "").split(":")[-1])
+            best = max(textures, key=lambda p: len(want & words(p.stem)), default=None)
+            if best is not None and want & words(best.stem):
+                rel = best.relative_to(owner / "assets" / ns / "textures").with_suffix("")
+                layout["texture"] = f"{ns}:{rel.as_posix()}"
+        out = owner / "assets" / ns / "horizon" / "menus.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(layouts))
+        count += len(layouts)
+    print(f"{count} mod menu layouts")
+
+
 def run(*command, env=None):
     print("+", " ".join(str(c) for c in command))
     subprocess.run([str(c) for c in command], check=True, env=env)
@@ -189,6 +221,7 @@ def main():
     lines = [l for l in lines if l.split(":")[0] not in {f"mod.{m}" for m in installed}]
     lines += [f"mod.{m}:true" for m in installed]
     listing.write_text("\n".join(lines) + "\n")
+    write_menus(facts, home / "horizon-mods")
     client_jar = args.client_dir and args.client_dir / "versions/1.21.1/1.21.1.jar"
     if client_jar and client_jar.exists():
         run(sys.executable, ROOT / "tools/neoforge_bridge/mod_entity_blocks.py", "--client-jar", client_jar,

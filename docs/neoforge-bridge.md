@@ -142,7 +142,12 @@ Mod mobs:
   (`setup_world.py --client-dir`). They move like vanilla mobs when their parts use vanilla's names.
 - Anything else is drawn as its hitbox.
 
-Mod menus with no client type open as chests with the menu's slots (`Generic` in `play.rs`).
+Mod menus with no client type open as chests with the menu's slots (`Generic` in `play.rs`), and
+the bridge names the menu (`horizon:mod_menu`). The oracle opens each mod block's menu with a fake
+player and records its slots; `setup_world.py` puts those layouts, with the GUI texture the menu's
+name points to, in the content mods (`assets/<ns>/horizon/menus.json`); the game then places the
+slots where the mod does, over the mod's texture (`game/mod_menus.rs`). Progress bars, buttons and
+other parts the mod's screen draws in code are not drawn.
 
 Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carried over:
 - **Model loaders** (`horizon-port-pack/src/model_loaders.rs`): `neoforge:composite` merges its
@@ -166,8 +171,8 @@ runs while the game loads), 59 s after a game update (the content is rebuilt).
 Gaps:
 - **Java-only rendering:** the turning parts inside Create's other machines (a press's or motor's
   shaft), belts, other block entity renderers,
-  backpacks and other models built in code, model parts a mod toggles in code (Naturalist's
-  bears) and custom screen artwork (menus open as plain chests).
+  other models built in code, model parts a mod toggles in code (Naturalist's bears), and what
+  mods' screens draw in code (progress, buttons); menus of items (not blocks) have no layout.
 - Particles move as a poof does, whatever their mod's code does.
 
 Without `--resources` the bridge stops after configuration, shows the client what it captured

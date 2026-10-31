@@ -784,6 +784,12 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         entity_types,
         modded_entities,
         menus: remap("minecraft:menu"),
+        menu_names: state
+            .facts
+            .frozen
+            .get("minecraft:menu")
+            .map(|m| m.ids.iter().map(|(&id, name)| (id, name.clone())).collect())
+            .unwrap_or_default(),
         generic_menus: std::array::from_fn(|i| {
             client_id("minecraft:menu", &format!("minecraft:generic_9x{}", i + 1))
         }),
