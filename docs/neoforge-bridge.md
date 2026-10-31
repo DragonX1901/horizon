@@ -131,7 +131,7 @@ Taken from NeoForge's 1.21.1 branch (`ServerConfigurationPacketListenerImpl.java
 | Configuration → client: 777 registry_data, tags and known packs from the captured 767 data, with id remapping | **todo** (next) |
 | Client content: build a content mod (`.hmod`) from the server's mod jars and the captured registries (reuse `horizon-port-pack` carry-over) | **todo** |
 | Play: 767 → 777 translation (chunks, block state remap, entities and metadata, items and components, inventories, chat, commands) | **todo**: the largest part, one protocol step at a time (1.21.1 → 1.21.2 → … → 26.3) |
-| Modded play payloads (NeoForge's `advanced_add_entity`, `advanced_open_screen`, `sync_attachments`; mods' own) | **todo**: per mod; renderers and GUIs that exist only in Java client code won't draw |
+| Modded play payloads (NeoForge's `advanced_open_screen`, split packets; mods' own pass through to the game) | done; renderers and GUIs that exist only in Java client code don't draw |
 
 Mod mobs:
 - Every mod entity type reaches the client, including those mods spawn with their own packets, and
@@ -144,13 +144,27 @@ Mod mobs:
 
 Mod menus with no client type open as chests with the menu's slots (`Generic` in `play.rs`).
 
+Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carried over:
+- **Model loaders** (`horizon-port-pack/src/model_loaders.rs`): `neoforge:composite` merges its
+  children, `neoforge:separate_transforms` keeps its base, a mod's own loader that names its model
+  uses it, `neoforge:obj` meshes become flat elements turned into place.
+- **Signs and chests** (`tools/neoforge_bridge/mod_entity_blocks.py`, needs `--client-dir`): sign
+  textures are laid out as 26.3 lays them out, learnt pixel by pixel from vanilla's own woods;
+  chest textures are copied to `<ns>:entity/chest/<block>`.
+- **Fluids** flow and draw as their template fluid (water or lava).
+- **Particles**: mods' particle types are announced by the bridge and drawn with their sprites.
+- Libraries shipped inside mods (jar-in-jar) are carried as their own mods.
+
+Start-up with the 35-jar test pack: 46 s into the world (NeoForge's own boot is 40 s of it, and
+runs while the game loads), 59 s after a game update (the content is rebuilt).
+`setup_world.py --reuse-oracle` carries a world's mods over again without the oracle run.
+
 Gaps:
-- **Cobblemon's Pokémon** show as boxes. Their models are picked per species by Cobblemon's own
-  resolver files and Bedrock animations, which needs a Cobblemon-specific port.
-- **Java-only rendering:** Create's turning shafts and belts, block entity renderers, model
-  parts a mod toggles in code (Naturalist's sleeping and awake bear heads) and custom screen artwork
-  (menus open as plain chests) all need per-mod ports.
-- **Particles:** vibration particles and mods' particles with options are dropped.
+- **Java-only rendering:** Create's turning shafts and belts, other block entity renderers,
+  backpacks and other models built in code, model parts a mod toggles in code (Naturalist's
+  bears) and custom screen artwork (menus open as plain chests).
+- Fluids use water's or lava's textures, not the mod's.
+- Particles move as a poof does, whatever their mod's code does.
 
 Without `--resources` the bridge stops after configuration, shows the client what it captured
 and disconnects. With `--dump` it writes the captured facts as JSON.
