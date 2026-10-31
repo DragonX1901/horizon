@@ -22,7 +22,18 @@
   <a href="#contributing"><b>Contributing</b></a>
 </p>
 
-# Horizon
+# Heisen
+
+Heisen is a fork of [Horizon](https://github.com/horizon-rust/horizon) that plays **NeoForge 1.21.1
+mods in single player**. The mods run in real Java on a NeoForge server the game starts for the
+world, out of sight; Heisen draws them through a translating bridge, with mod blocks, items, models
+and mobs carried over from the mod jars. Esc pauses the server, and nobody else can join until you
+open the world to LAN. See [docs/neoforge-bridge.md](docs/neoforge-bridge.md) to make a modded world.
+
+Internal names (crates, `horizon-*` tools, `HORIZON_HOME`, data folders) stay as upstream's so
+saves, settings and upstream changes keep working.
+
+## Upstream: Horizon
 
 Horizon is Minecraft: Java Edition 26.3 rewritten in Rust: a native game that reads the same worlds, follows the same rules and generates the same terrain as the Java game, and is checked against it by more than 300 differential harnesses. You play it through a small launcher, on the files from your own copy of Minecraft. It is free, open source and unofficial.
 

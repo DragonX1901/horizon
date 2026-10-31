@@ -7124,7 +7124,7 @@ impl Game<'_> {
                 }));
                 self.chat_line(
                     horizon_client::text::Text::literal(format!(
-                        "(Horizon cannot show {menu} screens yet)"
+                        "(Heisen cannot show {menu} screens yet)"
                     )),
                     horizon_client::chat::ChatSource::Client,
                 );

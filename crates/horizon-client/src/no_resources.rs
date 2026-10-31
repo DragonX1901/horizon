@@ -7,7 +7,7 @@ use crate::ui_theme::{self, Face, Ui, color};
 /// The launcher's download page.
 pub const DOWNLOAD_URL: &str = "https://playhorizon.dev";
 
-const TITLE: &str = "Start Horizon from the launcher";
+const TITLE: &str = "Start Heisen from the launcher";
 const PARAGRAPHS: [&str; 3] = [
     "This is the game the Horizon launcher installs and starts. On its own it has none of \
      Minecraft's files, so it can't start.",

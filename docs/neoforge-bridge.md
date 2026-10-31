@@ -1,6 +1,7 @@
 # NeoForge 1.21.1 bridge
 
-Goal: **every NeoForge 1.21.1 mod in Horizon single player.** The mods run in real Java on a
+Goal: **every NeoForge 1.21.1 mod in Heisen single player.** (Heisen is this fork of Horizon; the
+code keeps Horizon's internal names.) The mods run in real Java on a
 NeoForge server that the game starts for a world, out of sight. The game joins it through this
 bridge, and the world keeps single player's rules:
 - the pause screen freezes the server and saves the world
