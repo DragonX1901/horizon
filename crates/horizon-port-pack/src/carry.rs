@@ -813,6 +813,7 @@ fn own_states(block: &crate::oracle::Block) -> Option<Value> {
             "friction": block.friction,
             "light": base.emission,
             "requires_tool": base.requires_tool,
+            "animated": block.animated(),
         },
         "states": {
             "properties": properties.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),

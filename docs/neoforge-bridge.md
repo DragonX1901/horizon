@@ -152,6 +152,9 @@ Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carr
   textures are laid out as 26.3 lays them out, learnt pixel by pixel from vanilla's own woods;
   chest textures are copied to `<ns>:entity/chest/<block>`.
 - **Fluids** flow and draw as their template fluid (water or lava).
+- **Turning blocks** (`game/kinetic.rs`): blocks drawn by their block entity
+  (`ENTITYBLOCK_ANIMATED`) and Create's shaft blocks are left out of the chunk and drawn by
+  themselves, turning at their block entity's `Speed` (the bridge sends `horizon:block_speeds`).
 - **Particles**: mods' particle types are announced by the bridge and drawn with their sprites.
 - Libraries shipped inside mods (jar-in-jar) are carried as their own mods.
 
@@ -160,7 +163,8 @@ runs while the game loads), 59 s after a game update (the content is rebuilt).
 `setup_world.py --reuse-oracle` carries a world's mods over again without the oracle run.
 
 Gaps:
-- **Java-only rendering:** Create's turning shafts and belts, other block entity renderers,
+- **Java-only rendering:** the turning parts inside Create's other machines (a press's or motor's
+  shaft), belts, other block entity renderers,
   backpacks and other models built in code, model parts a mod toggles in code (Naturalist's
   bears) and custom screen artwork (menus open as plain chests).
 - Fluids use water's or lava's textures, not the mod's.

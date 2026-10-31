@@ -49,9 +49,10 @@ impl Game<'_> {
             let offset = piston.interpolated_offset(partial);
             let corner = glam::DVec3::new(f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
             let moved = corner + glam::Vec3::from_array(offset).as_dvec3();
-            self.moving_block_vertices(block, from, moved - camera, out);
+            let shift = |v: glam::DVec3| glam::Mat4::from_translation(v.as_vec3());
+            self.moving_block_vertices(block, from, shift(moved - camera), out);
             if let Some(base) = base {
-                self.moving_block_vertices(base, at, corner - camera, out);
+                self.moving_block_vertices(base, at, shift(corner - camera), out);
             }
         }
     }
@@ -114,11 +115,12 @@ impl Game<'_> {
     /// lone block at `seed`: each face from the cell it looks at. Not from
     /// the moving piston's own cell, which is dark once the block it placed
     /// stands there (#3002).
-    fn moving_block_vertices(
+    /// Also a mod's block its block entity draws (kinetic.rs), turned in place.
+    pub(super) fn moving_block_vertices(
         &self,
         state: BlockStateId,
         seed: horizon_core::position::BlockPos,
-        at: glam::DVec3,
+        transform: glam::Mat4,
         out: &mut Vec<Vertex>,
     ) {
         let chunks = &self.world.chunks;
@@ -149,7 +151,7 @@ impl Game<'_> {
         self.tinted_block_model_vertices(
             state,
             horizon_core::random::position_seed(seed),
-            glam::Mat4::from_translation(at.as_vec3()),
+            transform,
             light,
             false,
             tint,

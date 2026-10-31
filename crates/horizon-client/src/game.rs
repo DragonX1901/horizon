@@ -120,6 +120,7 @@ mod integrated;
 mod item_draw;
 mod item_particles;
 mod jukebox;
+mod kinetic;
 mod lan;
 mod lan_actions;
 mod lan_attributes;
@@ -9002,6 +9003,8 @@ impl Game<'_> {
                     .block_entity_render()
                     .render(&scene, visible, &mut out);
             }
+            let time = scene.game_time as f64 + f64::from(scene.partial);
+            self.animated_block_geometry(r.block_entities().copied(), camera, time, &mut out);
             self.mark_stage(out.len(), "DESTROY");
             for &(pos, stage) in &cracks {
                 let state = self.world.block(pos[0], pos[1], pos[2]);

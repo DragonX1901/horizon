@@ -73,6 +73,9 @@ pub struct BlockProperties {
     pub map_color: Option<u8>,
     /// A vanilla block whose sounds this block uses.
     pub sounds: Option<String>,
+    /// Drawn by its block entity (`RenderShape.ENTITYBLOCK_ANIMATED`) rather than the chunk:
+    /// the game draws its model by itself, turning as its block entity says.
+    pub animated: Option<bool>,
 }
 
 /// Per-state outline and collision boxes, selected by one state property.

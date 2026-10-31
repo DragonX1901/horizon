@@ -210,6 +210,9 @@ public final class FactsExporter {
             json.name("can_occlude").value(state.canOcclude());
             json.name("replaceable").value(state.canBeReplaced());
             json.name("random_ticks").value(state.isRandomlyTicking());
+            // MODEL, or ENTITYBLOCK_ANIMATED for blocks their block entity's renderer draws.
+            json.name("render_shape").value(state.getRenderShape().name());
+            json.name("block_entity").value(state.hasBlockEntity());
             var color = state.getMapColor(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
             json.name("map_color").value(color.col);
             json.name("map_color_id").value(color.id);

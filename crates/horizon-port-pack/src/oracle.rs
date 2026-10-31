@@ -45,6 +45,20 @@ pub struct Block {
     pub states: BTreeMap<String, State>,
 }
 
+impl Block {
+    /// Whether the game draws this block's model itself, turning it, instead of the chunk:
+    /// its block entity's renderer draws it (`ENTITYBLOCK_ANIMATED`), or it is one of Create's
+    /// shaft blocks (`AbstractShaftBlock`: shafts, cogwheels and the many addons' built on them),
+    /// which Flywheel hides from the chunk and turns whole.
+    pub fn animated(&self) -> bool {
+        self.default_state().and_then(|s| s.render_shape.as_deref()) == Some("ENTITYBLOCK_ANIMATED")
+            || self
+                .class
+                .iter()
+                .any(|c| c.ends_with(".simpleRelays.AbstractShaftBlock"))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetType {
     pub name: String,
@@ -64,6 +78,10 @@ pub struct State {
     /// `shears`, `silk_touch_pickaxe`...): item id → count.
     #[serde(default)]
     pub drops: BTreeMap<String, BTreeMap<String, u32>>,
+    /// `BlockState.getRenderShape`: `ENTITYBLOCK_ANIMATED` when its block entity's renderer
+    /// draws it (older facts have none).
+    #[serde(default)]
+    pub render_shape: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,6 +280,9 @@ impl Facts {
             properties.insert("requires_tool".into(), json!(s.requires_tool));
             properties.insert("friction".into(), json!(block.friction));
             properties.insert("map_color".into(), json!(s.map_color_id));
+            if block.animated() {
+                properties.insert("animated".into(), json!(true));
+            }
             if theirs.is_none_or(|t| t.sound != s.sound) {
                 match self.sound_block(&s.sound, allowed) {
                     Some(b) => {

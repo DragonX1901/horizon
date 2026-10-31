@@ -287,7 +287,12 @@ impl Play {
                 self.enter(spawn.dimension_type, spawn.dimension.clone());
                 C777::Respawn(p777::Respawn { spawn, keep })
             }
-            cb::LEVEL_CHUNK_WITH_LIGHT => C777::LevelChunkWithLight(self.chunk(&mut r)?),
+            cb::LEVEL_CHUNK_WITH_LIGHT => {
+                let (chunk, speeds) = self.chunk(&mut r)?;
+                let mut out = vec![C777::LevelChunkWithLight(chunk).encode()];
+                out.extend(speeds_payload(&speeds));
+                return Ok(out);
+            }
             cb::LIGHT_UPDATE => C777::LightUpdate(p777::LightUpdate {
                 x: r.varint()?,
                 z: r.varint()?,
@@ -609,7 +614,12 @@ impl Play {
             cb::BLOCK_ENTITY_DATA => {
                 let pos = unpack_pos(r.i64()?);
                 let Some(&kind) = self.ctx.block_entity_types.get(&r.varint()?) else {
-                    return Ok(Vec::new());
+                    // A mod's block entity: only how fast it turns reaches the game.
+                    let speed = r.nbt().ok().and_then(|t| speed(&t));
+                    return Ok(speed
+                        .and_then(|s| speeds_payload(&[(pos, s)]))
+                        .into_iter()
+                        .collect());
                 };
                 C777::BlockEntityData(p777::BlockEntityData {
                     pos,
@@ -752,17 +762,29 @@ impl Play {
 
     /// LevelChunkWithLight: sections re-encoded with the client's block ids,
     /// heightmaps from NBT to their 777 list, block entity types remapped.
-    fn chunk(&self, r: &mut Reader) -> Result<p777::LevelChunkWithLight> {
+    fn chunk(&self, r: &mut Reader) -> Result<(p777::LevelChunkWithLight, Vec<([i32; 3], f32)>)> {
         let x = r.i32()?;
         let z = r.i32()?;
         let heightmaps = heightmaps(&r.nbt()?);
         let buffer = r.byte_array(r.remaining())?;
         let mut block_entities = Vec::new();
+        let mut speeds = Vec::new();
         for _ in 0..r.count(1 << 16)? {
             let packed_xz = r.i8()?;
             let y = r.i16()?;
             let kind = r.varint()?;
             let tag = r.nbt()?;
+            if let Some(s) = speed(&tag) {
+                let xz = packed_xz as u8;
+                speeds.push((
+                    [
+                        x * 16 + i32::from(xz >> 4),
+                        i32::from(y),
+                        z * 16 + i32::from(xz & 15),
+                    ],
+                    s,
+                ));
+            }
             if let Some(&kind) = self.ctx.block_entity_types.get(&kind) {
                 block_entities.push(BlockEntityInfo {
                     packed_xz,
@@ -778,16 +800,19 @@ impl Play {
         for _ in 0..self.sections {
             sections.push(self.section(&mut b)?);
         }
-        Ok(p777::LevelChunkWithLight {
-            x,
-            z,
-            chunk: ChunkData {
-                heightmaps,
-                buffer: ChunkData::from_sections(&sections),
-                block_entities,
+        Ok((
+            p777::LevelChunkWithLight {
+                x,
+                z,
+                chunk: ChunkData {
+                    heightmaps,
+                    buffer: ChunkData::from_sections(&sections),
+                    block_entities,
+                },
+                light,
             },
-            light,
-        })
+            speeds,
+        ))
     }
 
     fn section(&self, r: &mut Reader) -> Result<Section> {
@@ -1479,4 +1504,31 @@ mod tests {
             vec![20; 4096]
         );
     }
+}
+
+/// A block entity's `Speed` (Create's kinetic block entities and their addons' carry it).
+fn speed(tag: &Tag) -> Option<f32> {
+    let Tag::Compound(fields) = tag else {
+        return None;
+    };
+    match fields.get(&"Speed".into())? {
+        Tag::Float(bits) => Some(f32::from_bits(*bits)),
+        Tag::Double(bits) => Some(f64::from_bits(*bits) as f32),
+        _ => None,
+    }
+}
+
+/// The `horizon:block_speeds` payload for these speeds, if any.
+fn speeds_payload(speeds: &[([i32; 3], f32)]) -> Option<Vec<u8>> {
+    if speeds.is_empty() {
+        return None;
+    }
+    if std::env::var_os("HORIZON_BRIDGE_DEBUG").is_some() {
+        eprintln!("[bridge] speeds {speeds:?}");
+    }
+    let mut w = Writer::new();
+    w.varint(horizon_protocol::ids::play::clientbound::CUSTOM_PAYLOAD);
+    w.string(horizon_protocol::modded::BLOCK_SPEEDS);
+    w.bytes(&horizon_protocol::modded::write_speeds(speeds));
+    Some(w.data)
 }

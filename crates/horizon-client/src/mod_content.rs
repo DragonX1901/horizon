@@ -857,6 +857,10 @@ impl<'a> Plan<'a> {
         if let Some(s) = &p.sounds {
             row.set("sound", self.sounds[s].clone());
         }
+        if p.animated == Some(true) {
+            row.set("render_shape", J::Str("ENTITYBLOCK_ANIMATED".into()));
+            row.set("block_entity", J::Bool(true));
+        }
     }
 
     /// Adds each new block's copy of the template's entry to a map by name.

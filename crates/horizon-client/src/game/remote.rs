@@ -130,6 +130,8 @@ pub(super) struct Remote {
     pub(super) voice: Option<horizon_client::voicechat::VoiceChat>,
     /// Particle types the server's mods add, by the id it sends.
     pub(super) modded_particles: HashMap<i32, String>,
+    /// How fast mods' turning blocks turn, by position (kinetic.rs).
+    pub(super) block_speeds: HashMap<[i32; 3], f32>,
     lang: Arc<Language>,
     pub(super) registries: Arc<Dynamic>,
     joined: bool,
@@ -519,6 +521,7 @@ impl Game<'_> {
             modded_types: HashMap::new(),
             voice: None,
             modded_particles: HashMap::new(),
+            block_speeds: HashMap::new(),
             lang,
             registries: Arc::new(Dynamic::default()),
             joined: false,
@@ -2183,6 +2186,14 @@ impl Game<'_> {
             // ClientCommonPacketListenerImpl.handlePing runs on the game
             // thread, after all preceding packets (especially teleports).
             C::Ping(p) => self.send(S::Pong(p)),
+            C::CustomPayload(p) if p.channel == horizon_protocol::modded::BLOCK_SPEEDS => {
+                if let (Some(r), Ok(speeds)) = (
+                    self.remote.as_mut(),
+                    horizon_protocol::modded::read_speeds(&p.data),
+                ) {
+                    r.block_speeds.extend(speeds);
+                }
+            }
             C::CustomPayload(p) if p.channel == horizon_protocol::voicechat::SECRET => {
                 let Some(voice) = self.remote.as_mut().and_then(|r| r.voice.as_mut()) else {
                     return Ok(());

@@ -68,6 +68,27 @@ pub fn read_names(data: &[u8]) -> Result<Vec<(i32, String)>> {
         .collect()
 }
 
+/// `horizon:block_speeds`: how fast mods' turning blocks turn (a block entity's `Speed`, in
+/// Create's RPM), by position: (x, y, z, speed). The game turns their models.
+pub const BLOCK_SPEEDS: &str = "horizon:block_speeds";
+
+pub fn write_speeds(speeds: &[([i32; 3], f32)]) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.varint(speeds.len() as i32);
+    for (p, s) in speeds {
+        p.iter().for_each(|&c| w.i32(c));
+        w.f32(*s);
+    }
+    w.data
+}
+
+pub fn read_speeds(data: &[u8]) -> Result<Vec<([i32; 3], f32)>> {
+    let mut r = Reader::new(data);
+    (0..r.count(1 << 20)?)
+        .map(|_| Ok(([r.i32()?, r.i32()?, r.i32()?], r.f32()?)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
