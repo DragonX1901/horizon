@@ -764,18 +764,18 @@ fn build_with_gameplay<G: GameplayStateSource>(
     let cached = CachedCollisionRegistry::from_table(collision_file.table("collision")?)?;
     let mut shapes: Vec<VoxelShape> = Vec::new();
     let mut shape_ids = Vec::with_capacity(table.state_count());
+    // By identity, as `same_identity` compares: a linear search was quadratic in the states
+    // (146 s with a 352k-state modpack).
+    let mut seen: HashMap<usize, usize> = HashMap::new();
     for id in 0..table.state_count() {
         let Some(shape) = cached.cached_shape(BlockStateId(id as u32))? else {
             shape_ids.push(-1);
             continue;
         };
-        let index = match shapes.iter().position(|s| s.same_identity(shape)) {
-            Some(index) => index,
-            None => {
-                shapes.push(shape.clone());
-                shapes.len() - 1
-            }
-        };
+        let index = *seen.entry(shape.identity_key()).or_insert_with(|| {
+            shapes.push(shape.clone());
+            shapes.len() - 1
+        });
         shape_ids.push(index as i32);
     }
 

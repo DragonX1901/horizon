@@ -283,7 +283,11 @@ impl BlockFacts {
         callback: impl FnOnce(&[decode::Entry<'_>]) -> Result<T>,
     ) -> Result<(Self, T)> {
         let bytes = fs::read(root.join("gameplay-facts.json"))?;
-        serde_json::from_slice::<decode::Validate>(&bytes)?;
+        // A content root the game built itself (mod_content.rs, stamped) was written by
+        // serde_json: the error-parity pass over it would only read 10x vanilla's facts twice.
+        if !root.join("horizon-mod-content.stamp").exists() {
+            serde_json::from_slice::<decode::Validate>(&bytes)?;
+        }
         let raw: decode::Gameplay<'_> = serde_json::from_slice(&bytes)?;
         let entries = raw
             .states

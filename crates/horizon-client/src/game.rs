@@ -15948,30 +15948,38 @@ fn load_world_rest(
     let animate =
         horizon_client::animate_tick::AnimateTables::load(root, registry_owner.registry, biomes)?;
     let fog = horizon_client::fog::FogTables::load(root, biomes);
+    log::info!("load animate+fog: {:.2}s", started.elapsed().as_secs_f32());
+    let block_entity_render =
+        horizon_client::block_entity_render::BlockEntityRenderer::load_with_visibility(
+            root,
+            registry_owner.registry,
+            visibility,
+        )?;
+    log::info!(
+        "load block entity renderer: {:.2}s",
+        started.elapsed().as_secs_f32()
+    );
+    let behaviours = Behaviours::load_with_gameplay(
+        registry_owner.registry,
+        root,
+        behaviour_json,
+        gameplay_projection,
+    )?;
+    log::info!("load behaviours: {:.2}s", started.elapsed().as_secs_f32());
     Ok(WorldRest {
         stations,
         items,
         recipes,
         transformers,
         providers: Providers::load(root),
-        block_entity_render:
-            horizon_client::block_entity_render::BlockEntityRenderer::load_with_visibility(
-                root,
-                registry_owner.registry,
-                visibility,
-            )?,
+        block_entity_render,
         animate,
         fog,
         music: horizon_client::music::MusicTables::load(root),
         ambient: horizon_client::ambience::AmbientTables::load(root),
         nether_environment: Environment::load_dimension(root, "the_nether", false)?,
         end_environment: Environment::load_dimension(root, "the_end", false)?,
-        behaviours: Behaviours::load_with_gameplay(
-            registry_owner.registry,
-            root,
-            behaviour_json,
-            gameplay_projection,
-        )?,
+        behaviours,
         mob_types: MobTypes::load(root)?
             .types
             .into_iter()

@@ -1576,9 +1576,19 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
     }
     // The overlay links to the base: a relative base would leave them dangling.
     let base = &std::path::absolute(base)?;
+    let started = std::time::Instant::now();
+    let phase = |name: &str| {
+        log::info!(
+            "Heisen: content build: {name} after {:.1}s",
+            started.elapsed().as_secs_f32()
+        )
+    };
     let plan = Plan::new(base, mods)?;
+    phase("plan");
     let overlay = Overlay::new(base, out)?;
+    phase("overlay");
     tables(base, &plan, &overlay)?;
+    phase("tables");
     // Mod files, and every tag addition gathered per tag file.
     let mut tags: BTreeMap<String, TagMerge> = BTreeMap::new();
     let mut warnings = Vec::new();
@@ -1621,6 +1631,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
             }
         }
     }
+    phase("mod files");
     // A tag naming an id nobody registers fails as a whole in vanilla, and
     // carried-over mods name blocks left out or other mods' ids: such
     // entries are dropped instead, so the rest of the tag holds.
@@ -1663,6 +1674,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
     for (name, doc) in &bundles {
         overlay.write(name, &serde_json::to_vec(doc)?)?;
     }
+    phase("tags");
     // Biome tags, merged into the worldgen loader's bundle as block tags are.
     let biome_tags: Vec<(String, &TagMerge)> = tags
         .iter()
@@ -1702,6 +1714,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
         }
         overlay.write(bundle, &serde_json::to_vec(&doc)?)?;
     }
+    phase("worldgen");
     // The commands suggest ids from `command-registries.json`: add the
     // structures, pools, sets and features the mods bring.
     let registries = out_path(&overlay, "command-registries.json");
@@ -1752,6 +1765,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
         overlay.write(crate::content_identity::MARKER, b"1")?;
     }
     overlay.write(WARNINGS, warnings.join("\n").as_bytes())?;
+    phase("done");
     Ok(warnings)
 }
 
