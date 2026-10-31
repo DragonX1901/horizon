@@ -464,10 +464,12 @@ fn run(
         let (host, port) = match address.strip_prefix(FRIEND) {
             Some(code) => join_friend(code, send)?,
             None => {
-                let Some(target) = parse_address(address) else {
+                status(send, "Connecting to the server...");
+                // A NeoForge 1.21.1 server is joined through the bridge.
+                let routed = crate::neoforge::route(address, resources)?;
+                let Some(target) = parse_address(routed.as_deref().unwrap_or(address)) else {
                     return Ok(format!("Invalid server address: {address}"));
                 };
-                status(send, "Connecting to the server...");
                 target
             }
         };

@@ -80,6 +80,7 @@ pub mod mod_content;
 pub mod motion;
 pub mod multiplayer;
 pub mod music;
+pub mod neoforge;
 pub mod net;
 pub mod nether_portal;
 pub mod no_resources;

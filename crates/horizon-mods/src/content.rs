@@ -161,11 +161,21 @@ pub enum Rarity {
     Epic,
 }
 
+/// A mod's own rarity (`aether:loot`) has no color in the game: common.
+fn rarity<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Rarity>, D::Error> {
+    let name = Option::<String>::deserialize(d)?;
+    Ok(name.map(|n| {
+        Rarity::deserialize(serde::de::value::StrDeserializer::<D::Error>::new(&n))
+            .unwrap_or(Rarity::Common)
+    }))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ItemFile {
     template: String,
     max_stack_size: Option<u8>,
+    #[serde(default, deserialize_with = "rarity")]
     rarity: Option<Rarity>,
     #[serde(default)]
     components: BTreeMap<String, serde_json::Value>,

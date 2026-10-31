@@ -63,6 +63,7 @@ fn main() {
         dump_dir,
         resources,
         players: Default::default(),
+        authenticate: None,
         max_players: None,
     });
     if let Err(e) = serve(listener, options) {

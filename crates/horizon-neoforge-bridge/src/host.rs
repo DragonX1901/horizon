@@ -187,10 +187,12 @@ pub fn run(options: HostOptions) -> std::io::Result<()> {
         dump_dir: None,
         resources: Some(options.resources.clone()),
         players: Arc::new(AtomicUsize::new(0)),
+        authenticate: None,
         max_players: Some(1),
     };
     let lan_bridge = Arc::new(Options {
         players: Arc::new(AtomicUsize::new(0)),
+        authenticate: None,
         max_players: None,
         ..owner_bridge.clone()
     });

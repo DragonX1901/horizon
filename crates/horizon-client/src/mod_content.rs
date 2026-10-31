@@ -690,9 +690,11 @@ impl<'a> Plan<'a> {
                 _ => None,
             };
             if b.decl.item {
-                let item = b.item.as_deref().ok_or_else(|| {
-                    format!("{}: template {} has no item", b.decl.id, b.decl.template)
-                })?;
+                // A block whose template has no item (a fluid) keeps its block, without one.
+                let Some(item) = b.item.as_deref() else {
+                    log::warn!("Heisen: {}: template {} has no item; the block has none", b.decl.id, b.decl.template);
+                    continue;
+                };
                 items.push(NewItem {
                     rename: Rename::new(item, &b.decl.id),
                     max_stack_size: None,
@@ -703,16 +705,24 @@ impl<'a> Plan<'a> {
         }
         for m in &sorted {
             for i in &m.content.items {
+                // One item's unreadable component costs that item, not every mod's content.
+                let components = match i
+                    .components
+                    .iter()
+                    .map(|(k, v)| Ok((k.clone(), serde_json::from_value(v.clone())?)))
+                    .collect::<std::result::Result<_, serde_json::Error>>()
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::warn!("Heisen: item {} left out: {e}", i.id);
+                        continue;
+                    }
+                };
                 items.push(NewItem {
                     rename: Rename::new(&i.template, &i.id),
                     max_stack_size: i.max_stack_size,
                     rarity: i.rarity,
-                    components: i
-                        .components
-                        .iter()
-                        .map(|(k, v)| Ok((k.clone(), serde_json::from_value(v.clone())?)))
-                        .collect::<std::result::Result<_, serde_json::Error>>()
-                        .map_err(|e| format!("{}: {e}", i.id))?,
+                    components,
                 });
             }
         }

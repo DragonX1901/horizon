@@ -2,6 +2,7 @@
 """Make a modded single-player world from a folder of NeoForge 1.21.1 mods.
 
     setup_world.py --mods DIR --home GAME_HOME --world NAME [--java PATH] [--neoforge 21.1.N]
+    setup_world.py --mods DIR --home GAME_HOME --join NAME   # a server's mods, for multiplayer
 
 The mods run in Java on a NeoForge server that the game starts for the world
 (horizon-neoforge-host, docs/neoforge-bridge.md); Horizon draws them. This:
@@ -17,6 +18,11 @@ The jars are yours; nothing here is shipped or committed. Run it from the
 repository with the fast-profile tools built (`cargo build --profile fast
 -p horizon-port-pack -p horizon-client -p horizon-neoforge-bridge`) and
 Horizon's resources prepared (`.local/horizon-client/26.3`).
+
+With --join, the mods are a NeoForge 1.21.1 server's: steps 1 and 2 run (the
+server folder only serves the oracle and the companion build), the content
+mods are enabled, and no world is made. Put the printed companion jar in the
+server's mods/ folder; then join the server from the Multiplayer screen.
 """
 
 import argparse
@@ -64,7 +70,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mods", type=Path, required=True, help="a folder of NeoForge 1.21.1 mod jars")
     parser.add_argument("--home", type=Path, required=True, help="the game's home (HORIZON_HOME)")
-    parser.add_argument("--world", required=True, help="the world's folder name")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--world", help="the world's folder name")
+    target.add_argument("--join", help="a name for a server's mods: content mods only, no world")
     parser.add_argument("--java", default="java", help="the Java to run the server with (21 for Cobblemon)")
     parser.add_argument("--neoforge", help="the NeoForge 21.1 version (default: the newest)")
     parser.add_argument("--resources", type=Path, default=ROOT / ".local/horizon-client/26.3")
@@ -79,8 +87,9 @@ def main():
     if not jars:
         sys.exit(f"no jars in {mods}")
     version = args.neoforge or latest_neoforge()
-    server = home / "neoforge" / args.world
-    work = home / "neoforge" / f"{args.world}-port"
+    name = args.world or f"server-{args.join}"
+    server = home / "neoforge" / name
+    work = home / "neoforge" / f"{name}-port"
 
     # 1. The server, its mods and the companion.
     install_server(server, version, args.java)
@@ -126,6 +135,10 @@ def main():
     if args.client_dir:
         run(sys.executable, ROOT / "tools/neoforge_bridge/export_mod_models.py", "--client-dir", args.client_dir,
             "--server-dir", server, "--mods", mods, "--home", home)
+    if args.join:
+        print(f"\n{args.join}: NeoForge {version}, {len(jars)} jars, content mods {', '.join(installed) or 'none'}.")
+        print(f"Put {companion} in the server's mods/ folder, then join it from the Multiplayer screen.")
+        return
     world = home / "saves" / args.world
     world.mkdir(parents=True, exist_ok=True)
     marker = f"{server}\n" + (f"java={args.java}\n" if args.java != "java" else "")

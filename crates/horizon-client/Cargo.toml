@@ -13,6 +13,7 @@ horizon-client-core = { path = "../horizon-client-core" }
 horizon-client-input = { path = "../horizon-client-input" }
 horizon-client-render = { path = "../horizon-client-render" }
 horizon-command = { path = "../horizon-command" }
+horizon-neoforge-bridge = { path = "../horizon-neoforge-bridge" }
 horizon-items = { path = "../horizon-items" }
 horizon-core = { path = "../horizon-core" }
 # The server thread ahead of the workers (MinecraftServer.spin's Thread.setPriority).

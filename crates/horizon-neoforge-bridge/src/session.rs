@@ -18,8 +18,12 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Joins an online-mode server for the player: called with the login's server hash, it
+/// tells Mojang's session service the player is joining (the game's own account code).
+pub type Authenticator = Arc<dyn Fn(&str) -> std::result::Result<(), String> + Send + Sync>;
+
 /// Where the bridge sends players and what it keeps.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Options {
     pub server_host: String,
     pub server_port: u16,
@@ -32,6 +36,19 @@ pub struct Options {
     /// this listener lets in (None: no limit).
     pub players: Arc<AtomicUsize>,
     pub max_players: Option<usize>,
+    /// Set when the bridge runs inside the player's game: lets it join online-mode servers
+    /// as that player. None: offline-mode servers only.
+    pub authenticate: Option<Authenticator>,
+}
+
+impl std::fmt::Debug for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("server", &format_args!("{}:{}", self.server_host, self.server_port))
+            .field("max_players", &self.max_players)
+            .field("authenticate", &self.authenticate.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// One counted player, uncounted when the session ends.
@@ -124,7 +141,7 @@ pub fn handle(stream: TcpStream, options: &Options) -> Result<()> {
     if options.max_players.is_none() {
         options.players.fetch_add(1, Ordering::SeqCst);
     }
-    let Some(player) = login(&mut client, &mut server)? else {
+    let Some(player) = login(&mut client, &mut server, options.authenticate.as_ref())? else {
         return Ok(());
     };
     let facts = configuration(client, server, &player, options)?;
@@ -164,8 +181,13 @@ fn status(mut client: Connection, mut server: Connection) -> Result<()> {
     }
 }
 
-/// Offline login. Returns the player's name once both sides are in configuration.
-fn login(client: &mut Connection, server: &mut Connection) -> Result<Option<String>> {
+/// Login, online when `authenticate` is given. Returns the player's name once both sides
+/// are in configuration.
+fn login(
+    client: &mut Connection,
+    server: &mut Connection,
+    authenticate: Option<&Authenticator>,
+) -> Result<Option<String>> {
     let (id, body) = client.recv()?;
     let login::Serverbound::Hello(hello) = login::Serverbound::decode(id, &body)? else {
         return Err(Error::new("Expected the client's login hello"));
@@ -184,13 +206,41 @@ fn login(client: &mut Connection, server: &mut Connection) -> Result<Option<Stri
                 }))?;
                 return Ok(None);
             }
+            // 767's encryption request is 777's; the bridge answers it as the player.
             v767::login::clientbound::HELLO => {
-                login_disconnect(
-                    client,
-                    "This server runs in online mode. The NeoForge bridge joins offline-mode servers only \
-                     for now: put the server behind the bridge with online-mode=false.",
+                let login::Clientbound::Hello(hello) = login::Clientbound::decode(id, &body)? else {
+                    return Err(Error::new("Bad 767 login hello"));
+                };
+                let key = horizon_protocol::rsa::RsaPublicKey::from_der(&hello.public_key)
+                    .map_err(|e| Error::new(format!("Bad server key: {e}")))?;
+                let secret = horizon_protocol::crypto::generate_secret()?;
+                if hello.should_authenticate {
+                    let Some(authenticate) = authenticate else {
+                        login_disconnect(
+                            client,
+                            "This server runs in online mode. Join it from the game's Multiplayer screen \
+                             signed in with your Microsoft account.",
+                        )?;
+                        return Ok(None);
+                    };
+                    let hash = horizon_protocol::crypto::server_hash(
+                        &hello.server_id,
+                        &secret,
+                        &hello.public_key,
+                    );
+                    if let Err(reason) = authenticate(&hash) {
+                        login_disconnect(client, &reason)?;
+                        return Ok(None);
+                    }
+                }
+                server.send(
+                    &login::Serverbound::Key(login::Key {
+                        key: key.encrypt(&secret)?,
+                        challenge: key.encrypt(&hello.challenge)?,
+                    })
+                    .encode(),
                 )?;
-                return Ok(None);
+                server.enable_encryption(&secret);
             }
             v767::login::clientbound::LOGIN_COMPRESSION => server.set_compression(r.varint()?),
             v767::login::clientbound::CUSTOM_QUERY => {

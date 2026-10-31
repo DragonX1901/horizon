@@ -63,20 +63,32 @@ pub(super) fn content_root(
             Err(e) => log::warn!("Horizon: mod {} content not loaded: {e}", m.id),
         }
     }
-    match mod_content::resource_root(root, &mods, &here.join(".horizon-cache")) {
-        Ok(out) => {
-            if out != root {
-                log::info!(
-                    "Horizon: content from {} mod(s) in {}",
-                    mods.len(),
-                    out.display()
-                );
+    loop {
+        match mod_content::resource_root(root, &mods, &here.join(".horizon-cache")) {
+            Ok(out) => {
+                if out != root {
+                    log::info!(
+                        "Horizon: content from {} mod(s) in {}",
+                        mods.len(),
+                        out.display()
+                    );
+                }
+                return out;
             }
-            out
-        }
-        Err(e) => {
-            log::warn!("Horizon: content mods not loaded: {e}");
-            root.to_owned()
+            // An error names the mod or the id it is about: that mod stays out and the
+            // others load, so one broken mod doesn't cost a modpack its content.
+            Err(e) => {
+                let message = e.to_string();
+                let culprit = message.split(':').next().unwrap_or_default().trim();
+                let Some(at) = mods.iter().position(|m| {
+                    m.id == culprit || m.content.namespaces.iter().any(|n| n == culprit)
+                }) else {
+                    log::warn!("Horizon: content mods not loaded: {message}");
+                    return root.to_owned();
+                };
+                log::warn!("Horizon: mod {} content not loaded: {message}", mods[at].id);
+                mods.remove(at);
+            }
         }
     }
 }
