@@ -122,6 +122,10 @@ pub(super) struct Remote {
     /// The server announced it runs mods' quiet commands.
     pub quiet_commands: bool,
     pub(super) builtin: Arc<Builtin>,
+    /// Entity types the server adds (mods): by the id it sends, their name;
+    /// by name, their mob type.
+    pub(super) modded_names: HashMap<i32, String>,
+    pub(super) modded_types: HashMap<String, Arc<horizon_client::mobs::MobType>>,
     lang: Arc<Language>,
     pub(super) registries: Arc<Dynamic>,
     joined: bool,
@@ -507,6 +511,8 @@ impl Game<'_> {
             brand: "unknown".into(),
             quiet_commands: false,
             builtin: Arc::new(builtin),
+            modded_names: HashMap::new(),
+            modded_types: HashMap::new(),
             lang,
             registries: Arc::new(Dynamic::default()),
             joined: false,
@@ -1136,6 +1142,23 @@ impl Game<'_> {
                         remote.brand = brand;
                     }
                 }
+                Event::ModdedEntities(entities) => {
+                    log::info!("Horizon: the server adds {} entity types", entities.len());
+                    let base = self.res.mob_types().get("minecraft:pig").cloned();
+                    if let (Some(remote), Some(base)) = (&mut self.remote, base) {
+                        for e in entities {
+                            let t = horizon_client::mobs::MobType::modded(
+                                &base,
+                                &e.name,
+                                f64::from(e.width),
+                                f64::from(e.height),
+                                f64::from(e.eye_height),
+                            );
+                            remote.modded_names.insert(e.id, e.name.clone());
+                            remote.modded_types.insert(e.name, Arc::new(t));
+                        }
+                    }
+                }
                 Event::QuietCommands => {
                     if let Some(remote) = &mut self.remote {
                         remote.quiet_commands = true;
@@ -1664,7 +1687,11 @@ impl Game<'_> {
         let mob_type = if kind == "minecraft:player" {
             self.remote.as_ref().and_then(|r| r.player_type.clone())
         } else {
-            self.res.mob_types().get(kind).cloned()
+            self.res.mob_types().get(kind).cloned().or_else(|| {
+                self.remote
+                    .as_ref()
+                    .and_then(|r| r.modded_types.get(kind).cloned())
+            })
         };
         if kind == "minecraft:ender_dragon" {
             self.spawn_remote_dragon(id, position, yaw);
@@ -2302,8 +2329,9 @@ impl Game<'_> {
                     .as_ref()
                     .and_then(|r| {
                         r.builtin
-                            .get("minecraft:entity_type")?
-                            .name(p.kind)
+                            .get("minecraft:entity_type")
+                            .and_then(|t| t.name(p.kind))
+                            .or_else(|| r.modded_names.get(&p.kind).map(String::as_str))
                             .map(str::to_owned)
                     })
                     .unwrap_or_default();

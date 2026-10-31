@@ -12,6 +12,9 @@ public record BlockStatesTask(ServerConfigurationPacketListener listener) implem
     @Override
     public void run(Consumer<CustomPacketPayload> sender) {
         sender.accept(new BlockStatesPayload());
+        if (listener.hasChannel(EntityTypesPayload.TYPE)) {
+            sender.accept(new EntityTypesPayload());
+        }
         listener.finishCurrentTask(TYPE);
     }
 

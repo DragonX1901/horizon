@@ -5,6 +5,9 @@ use super::{Brain, Flags, anim::Anim};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Species {
+    /// A mob a mod adds, run by the server that runs the mod (the NeoForge
+    /// bridge): drawn from data, with no vanilla behaviour of its own.
+    Modded,
     Tadpole,
     ZombieHorse,
     SkeletonHorse,

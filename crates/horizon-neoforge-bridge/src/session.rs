@@ -508,6 +508,9 @@ impl Configuration {
                     return self.packet(id, r.rest());
                 }
             }
+            neoforge::BRIDGE_ENTITY_TYPES => {
+                self.facts.entity_types = neoforge::read_entity_types(&mut r)?
+            }
             neoforge::BRIDGE_BLOCK_STATES => {
                 self.facts.block_states = Some(neoforge::read_block_states(&mut r)?)
             }
@@ -577,6 +580,20 @@ fn configuration(
                     .as_deref()
                     .and_then(|r| play_context(&state, r))
                 {
+                    eprintln!(
+                        "[bridge] {player}: {} mod entity types announced",
+                        ctx.modded_entities.len()
+                    );
+                    if !ctx.modded_entities.is_empty() {
+                        let data = horizon_protocol::modded::write(&ctx.modded_entities);
+                        client_writer.send(&packet(
+                            v777::configuration::clientbound::CUSTOM_PAYLOAD,
+                            |w| {
+                                w.string(horizon_protocol::modded::CHANNEL);
+                                w.bytes(&data);
+                            },
+                        ))?;
+                    }
                     let play = Arc::new(Mutex::new(Play::new(ctx)));
                     let _ = play_tx.send(play.clone());
                     client_writer.send(&packet(
@@ -636,6 +653,36 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         out
     };
     let client_id = |registry: &str, name: &str| builtin.as_ref()?.get(registry)?.id(name);
+    // Mod entity types the client lacks get ids past its registry, announced
+    // to it (horizon_protocol::modded) before play.
+    let mut entity_types = remap("minecraft:entity_type");
+    let mut modded_entities = Vec::new();
+    if let (Some(server), Some(client)) = (
+        state.facts.frozen.get("minecraft:entity_type"),
+        builtin
+            .as_ref()
+            .and_then(|b| b.get("minecraft:entity_type")),
+    ) {
+        let mut next = client.names.len() as i32;
+        for (&id, name) in &server.ids {
+            if entity_types.contains_key(&id) {
+                continue;
+            }
+            if let Some((_, width, height, eye_height)) =
+                state.facts.entity_types.iter().find(|t| t.0 == *name)
+            {
+                entity_types.insert(id, next);
+                modded_entities.push(horizon_protocol::modded::ModdedEntity {
+                    id: next,
+                    name: name.clone(),
+                    width: *width,
+                    height: *height,
+                    eye_height: *eye_height,
+                });
+                next += 1;
+            }
+        }
+    }
     let biomes = state
         .facts
         .registries
@@ -650,11 +697,14 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         dimension_types: state.dimension_types.clone(),
         block_entity_types: remap("minecraft:block_entity_type"),
         items: remap("minecraft:item"),
-        entity_types: remap("minecraft:entity_type"),
+        entity_types,
+        modded_entities,
         menus: remap("minecraft:menu"),
         components: remap("minecraft:data_component_type"),
         blocks: remap("minecraft:block"),
         effects: remap("minecraft:mob_effect"),
+        arguments: remap("minecraft:command_argument_type"),
+        string_argument: client_id("minecraft:command_argument_type", "brigadier:string"),
         attributes: remap("minecraft:attribute"),
         particles: state
             .facts

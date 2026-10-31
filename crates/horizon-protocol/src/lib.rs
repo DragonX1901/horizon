@@ -10,6 +10,7 @@ pub mod entity_data;
 pub mod frame;
 pub mod ids;
 pub mod item;
+pub mod modded;
 pub mod packets;
 pub mod quiet;
 pub mod registry;

@@ -408,6 +408,109 @@ fn exact_attributes(bytes: &[u8]) -> HashMap<String, HashMap<String, f64>> {
 pub struct MobTypes {
     pub types: HashMap<String, MobType>,
 }
+impl MobType {
+    /// A mob a mod adds (`Species::Modded`): `base`'s plain behaviour tables
+    /// with the mod's id and size, drawn as its hitbox until its own model is
+    /// known, and silent (its sounds come from the server).
+    pub fn modded(base: &MobType, id: &str, width: f64, height: f64, eye_height: f64) -> MobType {
+        let mut t = base.clone();
+        t.id = id.to_owned();
+        t.species = Species::Modded;
+        (t.width, t.height, t.eye_height) = (width, height, eye_height);
+        t.model = Arc::new(hitbox_model(width as f32, height as f32));
+        t.layers = HashMap::new();
+        t.texture = MODDED_TEXTURE.to_owned();
+        t.sounds = ["", "", ""];
+        t.step_sound = None;
+        t
+    }
+}
+/// The texture a mod's mob is drawn with until its own is known.
+pub const MODDED_TEXTURE: &str = "entity/armorstand/armorstand";
+
+/// A box the size of a `width` x `height` hitbox, in model units (16 a block,
+/// y down from the feet at 24), each face showing the whole texture.
+fn hitbox_model(width: f32, height: f32) -> Part {
+    let (x, z) = (width * 8.0, width * 8.0);
+    let (top, bottom) = (24.0 - height * 16.0, 24.0);
+    let face = |corners: [[f32; 3]; 4], outward: [f32; 3]| {
+        let uv = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let mut vertices: [[f32; 5]; 4] = std::array::from_fn(|i| {
+            [
+                corners[i][0],
+                corners[i][1],
+                corners[i][2],
+                uv[i][0],
+                uv[i][1],
+            ]
+        });
+        let p = vertices.map(|v| glam::Vec3::new(v[0], v[1], v[2]));
+        if (p[1] - p[0])
+            .cross(p[2] - p[0])
+            .dot(glam::Vec3::from_array(outward))
+            < 0.0
+        {
+            vertices.reverse();
+        }
+        Polygon {
+            normal: outward,
+            vertices,
+        }
+    };
+    let polygons = vec![
+        face(
+            [[-x, top, -z], [x, top, -z], [x, top, z], [-x, top, z]],
+            [0.0, -1.0, 0.0],
+        ),
+        face(
+            [
+                [-x, bottom, z],
+                [x, bottom, z],
+                [x, bottom, -z],
+                [-x, bottom, -z],
+            ],
+            [0.0, 1.0, 0.0],
+        ),
+        face(
+            [
+                [-x, top, -z],
+                [-x, bottom, -z],
+                [x, bottom, -z],
+                [x, top, -z],
+            ],
+            [0.0, 0.0, -1.0],
+        ),
+        face(
+            [[x, top, z], [x, bottom, z], [-x, bottom, z], [-x, top, z]],
+            [0.0, 0.0, 1.0],
+        ),
+        face(
+            [
+                [-x, top, z],
+                [-x, bottom, z],
+                [-x, bottom, -z],
+                [-x, top, -z],
+            ],
+            [-1.0, 0.0, 0.0],
+        ),
+        face(
+            [[x, top, -z], [x, bottom, -z], [x, bottom, z], [x, top, z]],
+            [1.0, 0.0, 0.0],
+        ),
+    ];
+    Part {
+        name: "root".into(),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        polygons: Vec::new(),
+        children: vec![Part {
+            name: "body".into(),
+            pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            polygons,
+            children: Vec::new(),
+        }],
+    }
+}
+
 impl MobTypes {
     pub fn load(root: &Path) -> crate::Result<Self> {
         let bytes = fs::read(root.join("entity-types.json"))?;

@@ -1475,7 +1475,7 @@ impl ArgumentProperties {
 }
 
 /// Reads past an argument node's parser properties.
-fn read_argument_properties(r: &mut Reader, id: i32) -> Result<()> {
+pub fn read_argument_properties(r: &mut Reader, id: i32) -> Result<()> {
     ArgumentProperties::read(r, id).map(|_| ())
 }
 

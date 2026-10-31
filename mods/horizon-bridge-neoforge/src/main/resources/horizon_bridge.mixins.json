@@ -8,7 +8,9 @@
     "PacketEncoderMixin",
     "PacketSplitterMixin",
     "DataComponentPatchCodecMixin",
-    "DataValueMixin"
+    "DataValueMixin",
+    "ArgumentNodeStubMixin",
+    "ServerEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

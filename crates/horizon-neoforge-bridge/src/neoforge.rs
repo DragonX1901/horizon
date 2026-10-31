@@ -31,6 +31,8 @@ pub const MC_UNREGISTER: &str = "minecraft:unregister";
 pub const BRIDGE_HELLO: &str = "horizon_bridge:hello";
 /// The companion mod's block-state table.
 pub const BRIDGE_BLOCK_STATES: &str = "horizon_bridge:block_states";
+/// The companion mod's list of mod entity types with their sizes.
+pub const BRIDGE_ENTITY_TYPES: &str = "horizon_bridge:entity_types";
 
 /// ConnectionProtocol ordinals in 1.21.1 (checked against the server jar).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -113,6 +115,7 @@ pub fn bridge_channels() -> BTreeMap<Protocol, Vec<QueryComponent>> {
         QueryComponent::new(SPLIT, None),
         QueryComponent::new(BRIDGE_HELLO, None),
         QueryComponent::new(BRIDGE_BLOCK_STATES, Some(C)),
+        QueryComponent::new(BRIDGE_ENTITY_TYPES, Some(C)),
     ];
     let play = [
         "neoforge:advanced_add_entity",
@@ -337,6 +340,13 @@ impl Splitter {
         }
         Ok((state == 2).then(|| std::mem::take(&mut self.parts)))
     }
+}
+
+/// The companion mod's entity types: (name, width, height, eye height).
+pub fn read_entity_types(r: &mut Reader) -> Result<Vec<(String, f32, f32, f32)>> {
+    (0..r.count(1 << 16)?)
+        .map(|_| Ok((r.string(32767)?, r.f32()?, r.f32()?, r.f32()?)))
+        .collect()
 }
 
 /// The companion mod's block-state table: per block in registry order, its id, its

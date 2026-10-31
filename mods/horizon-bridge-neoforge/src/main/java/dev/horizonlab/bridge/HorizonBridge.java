@@ -30,7 +30,8 @@ public final class HorizonBridge {
         event.registrar("1")
                 .optional()
                 .configurationBidirectional(HelloPayload.TYPE, HelloPayload.STREAM_CODEC, (payload, context) -> {})
-                .configurationToClient(BlockStatesPayload.TYPE, BlockStatesPayload.STREAM_CODEC, (payload, context) -> {});
+                .configurationToClient(BlockStatesPayload.TYPE, BlockStatesPayload.STREAM_CODEC, (payload, context) -> {})
+                .configurationToClient(EntityTypesPayload.TYPE, EntityTypesPayload.STREAM_CODEC, (payload, context) -> {});
     }
 
     private static void registerTasks(RegisterConfigurationTasksEvent event) {

@@ -43,6 +43,9 @@ pub enum Event {
     Brand(String),
     /// The server runs mods' quiet commands (`horizon_protocol::quiet`).
     QuietCommands,
+    /// Entity types the server adds beyond the client's registry
+    /// (`horizon_protocol::modded`).
+    ModdedEntities(Vec<horizon_protocol::modded::ModdedEntity>),
     /// Configuration finished: the play state begins with these registries.
     Joined {
         registries: Arc<Dynamic>,
@@ -797,6 +800,10 @@ fn receive_brand(payload: &cfg::CustomPayload, send: &Sender<Event>) {
         let _ = send.send(Event::Brand(brand));
     } else if payload.channel == horizon_protocol::quiet::CHANNEL {
         let _ = send.send(Event::QuietCommands);
+    } else if payload.channel == horizon_protocol::modded::CHANNEL
+        && let Ok(entities) = horizon_protocol::modded::read(&payload.data)
+    {
+        let _ = send.send(Event::ModdedEntities(entities));
     }
 }
 

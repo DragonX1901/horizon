@@ -114,10 +114,16 @@ pub struct Context {
     pub attributes: HashMap<i32, i32>,
     /// Particle types: server id → (client id, name).
     pub particles: HashMap<i32, (i32, String)>,
+    /// Command argument types: server id → client id; and the client's
+    /// `brigadier:string`, which stands in for parsers it lacks.
+    pub arguments: HashMap<i32, i32>,
+    pub string_argument: Option<i32>,
     /// Data component types: server id → client id.
     pub components: HashMap<i32, i32>,
     /// The client's item for server items it lacks.
     pub placeholder_item: i32,
+    /// The mod entity types given client ids past its registry, to announce.
+    pub modded_entities: Vec<horizon_protocol::modded::ModdedEntity>,
     /// The client's `minecraft:experience_orb` entity type.
     pub experience_orb: Option<i32>,
 }
@@ -562,6 +568,7 @@ impl Play {
                     randomization: 0,
                 })
             }
+            cb::COMMANDS => C777::Commands(self.commands(&mut r)?),
             cb::SET_TIME => {
                 let game_time = r.i64()?;
                 let day_time = r.i64()?;
@@ -679,6 +686,67 @@ impl Play {
             _ => None,
         };
         Ok(Some(Particle { id: *id, data }))
+    }
+
+    /// The command tree (argument properties framed by the companion mod): each
+    /// parser by its client id when the client reads its properties as they
+    /// are, else a string argument (greedy at the end of a command, one word
+    /// before more arguments). The server still parses what the player types.
+    fn commands(&self, r: &mut Reader) -> Result<p777::Commands> {
+        let n = r.count(r.remaining())?;
+        let mut nodes = Vec::with_capacity(n.min(1 << 14));
+        for _ in 0..n {
+            let flags = r.u8()?;
+            let children: Vec<i32> = (0..r.count(r.remaining())?)
+                .map(|_| r.varint())
+                .collect::<Result<_>>()?;
+            let redirect = if flags & 8 != 0 {
+                Some(r.varint()?)
+            } else {
+                None
+            };
+            let kind = flags & 3;
+            let name = if kind >= 1 {
+                r.string(32767)?
+            } else {
+                String::new()
+            };
+            let mut parser = None;
+            let mut suggestions = None;
+            if kind == 2 {
+                let server = r.varint()?;
+                let len = r.count(r.remaining())?;
+                let props = r.bytes(len)?;
+                let kept = self.ctx.arguments.get(&server).copied().filter(|&id| {
+                    let mut p = Reader::new(props);
+                    p777::read_argument_properties(&mut p, id).is_ok() && p.remaining() == 0
+                });
+                parser = match (kept, self.ctx.string_argument) {
+                    (Some(id), _) => Some((id, props.to_vec())),
+                    (None, Some(string)) => {
+                        Some((string, vec![if children.is_empty() { 2 } else { 0 }]))
+                    }
+                    (None, None) => None,
+                };
+                if flags & 16 != 0 {
+                    suggestions = Some(r.string(32767)?);
+                }
+            }
+            nodes.push(p777::CommandNode {
+                kind,
+                executable: flags & 4 != 0,
+                restricted: false,
+                children,
+                redirect,
+                name,
+                parser,
+                suggestions,
+            });
+        }
+        Ok(p777::Commands {
+            nodes,
+            root: r.varint()?,
+        })
     }
 
     /// A sound holder: by the client's id, or inline by name for a sound the
