@@ -51,6 +51,8 @@ pub struct StateFacts {
     pub replaceable: bool,
     pub random_ticks: bool,
     pub block_entity: bool,
+    /// One of Create's kinetic blocks (a content mod's): a turning shaft is drawn through it.
+    pub kinetic: bool,
     pub render_shape: RenderShape,
     pub full_collision: bool,
     pub friction: f32,
@@ -403,6 +405,7 @@ impl BlockFacts {
                 replaceable: entry.replaceable,
                 random_ticks: entry.random_ticks,
                 block_entity: entry.block_entity,
+                kinetic: entry.kinetic,
                 render_shape: match entry.render_shape.as_deref() {
                     Some("INVISIBLE") => RenderShape::Invisible,
                     Some("ENTITYBLOCK_ANIMATED") => RenderShape::Animated,

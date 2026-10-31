@@ -182,6 +182,8 @@ object!(Entry<'a> {
     outline_edges: Option<&'a RawValue> = None => typed,
     // A content mod's fluid block: the vanilla fluid it flows as (mod_content.rs).
     fluid: Option<String> = None => value(text),
+    // Create's kinetic blocks: a turning shaft is drawn through them (game/kinetic.rs).
+    kinetic: bool = false => value(flag),
 });
 
 // Match Value::to_string identity without serializing: integer/float spelling is

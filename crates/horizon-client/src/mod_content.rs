@@ -857,6 +857,10 @@ impl<'a> Plan<'a> {
         if let Some(s) = &p.sounds {
             row.set("sound", self.sounds[s].clone());
         }
+        if p.kinetic == Some(true) {
+            row.set("kinetic", J::Bool(true));
+            row.set("block_entity", J::Bool(true));
+        }
         if p.animated == Some(true) {
             row.set("render_shape", J::Str("ENTITYBLOCK_ANIMATED".into()));
             row.set("block_entity", J::Bool(true));

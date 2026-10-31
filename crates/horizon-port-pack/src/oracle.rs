@@ -57,6 +57,17 @@ impl Block {
                 .iter()
                 .any(|c| c.ends_with(".simpleRelays.AbstractShaftBlock"))
     }
+
+    /// One of Create's other kinetic blocks (`KineticBlock`: machines, motors, gearboxes, and
+    /// its addons' built on it): its casing stays in the chunk, and Create draws a turning
+    /// shaft through it, as the game does with Create's own shaft model.
+    pub fn kinetic(&self) -> bool {
+        !self.animated()
+            && self
+                .class
+                .iter()
+                .any(|c| c.ends_with(".kinetics.base.KineticBlock"))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -282,6 +293,9 @@ impl Facts {
             properties.insert("map_color".into(), json!(s.map_color_id));
             if block.animated() {
                 properties.insert("animated".into(), json!(true));
+            }
+            if block.kinetic() {
+                properties.insert("kinetic".into(), json!(true));
             }
             if theirs.is_none_or(|t| t.sound != s.sound) {
                 match self.sound_block(&s.sound, allowed) {

@@ -160,7 +160,9 @@ Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carr
   and `_flow` textures, found by name (their tint, set in code, is not applied).
 - **Turning blocks** (`game/kinetic.rs`): blocks drawn by their block entity
   (`ENTITYBLOCK_ANIMATED`) and Create's shaft blocks are left out of the chunk and drawn by
-  themselves, turning at their block entity's `Speed` (the bridge sends `horizon:block_speeds`).
+  themselves, turning at their block entity's `Speed` (the bridge sends `horizon:block_speeds`) when
+  they have an `axis`; Create's other kinetic blocks (`KineticBlock`: motors, presses, gearboxes...)
+  keep their casing in the chunk and get Create's shaft drawn through them, turning.
 - **Particles**: mods' particle types are announced by the bridge and drawn with their sprites.
 - Libraries shipped inside mods (jar-in-jar) are carried as their own mods.
 
@@ -169,8 +171,8 @@ runs while the game loads), 59 s after a game update (the content is rebuilt).
 `setup_world.py --reuse-oracle` carries a world's mods over again without the oracle run.
 
 Gaps:
-- **Java-only rendering:** the turning parts inside Create's other machines (a press's or motor's
-  shaft), belts, other block entity renderers,
+- **Java-only rendering:** Create's moving parts other than shafts (a press's head, a belt's
+  surface, a gearbox's four outputs), other block entity renderers,
   other models built in code, model parts a mod toggles in code (Naturalist's bears), and what
   mods' screens draw in code (progress, buttons); menus of items (not blocks) have no layout.
 - Particles move as a poof does, whatever their mod's code does.
