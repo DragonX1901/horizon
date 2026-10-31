@@ -35,6 +35,8 @@ pub const BRIDGE_HELLO: &str = "horizon_bridge:hello";
 pub const BRIDGE_BLOCK_STATES: &str = "horizon_bridge:block_states";
 /// The companion mod's list of mod entity types with their sizes.
 pub const BRIDGE_ENTITY_TYPES: &str = "horizon_bridge:entity_types";
+/// Simple Voice Chat's compatibility version on the server (an int), when it runs there.
+pub const BRIDGE_VOICECHAT: &str = "horizon_bridge:voicechat";
 
 /// ConnectionProtocol ordinals in 1.21.1 (checked against the server jar).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -118,6 +120,7 @@ pub fn bridge_channels() -> BTreeMap<Protocol, Vec<QueryComponent>> {
         QueryComponent::new(BRIDGE_HELLO, None),
         QueryComponent::new(BRIDGE_BLOCK_STATES, Some(C)),
         QueryComponent::new(BRIDGE_ENTITY_TYPES, Some(C)),
+        QueryComponent::new(BRIDGE_VOICECHAT, Some(C)),
     ];
     let play = [
         "neoforge:advanced_add_entity",

@@ -27,6 +27,8 @@ pub struct ServerFacts {
     pub block_states: Option<BlockStates>,
     /// Mod entity types: (name, width, height, eye height).
     pub entity_types: Vec<(String, f32, f32, f32)>,
+    /// Simple Voice Chat's compatibility version, when the server runs it.
+    pub voicechat: Option<i32>,
 }
 
 impl ServerFacts {

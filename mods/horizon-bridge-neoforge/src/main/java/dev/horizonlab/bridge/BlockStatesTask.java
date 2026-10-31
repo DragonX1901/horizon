@@ -15,6 +15,9 @@ public record BlockStatesTask(ServerConfigurationPacketListener listener) implem
         if (listener.hasChannel(EntityTypesPayload.TYPE)) {
             sender.accept(new EntityTypesPayload());
         }
+        if (listener.hasChannel(VoicechatPayload.TYPE) && VoicechatPayload.loaded()) {
+            sender.accept(new VoicechatPayload());
+        }
         listener.finishCurrentTask(TYPE);
     }
 

@@ -126,6 +126,8 @@ pub(super) struct Remote {
     /// by name, their mob type.
     pub(super) modded_names: HashMap<i32, String>,
     pub(super) modded_types: HashMap<String, Arc<horizon_client::mobs::MobType>>,
+    /// Simple Voice Chat, when the server runs it (voicechat.rs).
+    pub(super) voice: Option<horizon_client::voicechat::VoiceChat>,
     lang: Arc<Language>,
     pub(super) registries: Arc<Dynamic>,
     joined: bool,
@@ -513,6 +515,7 @@ impl Game<'_> {
             builtin: Arc::new(builtin),
             modded_names: HashMap::new(),
             modded_types: HashMap::new(),
+            voice: None,
             lang,
             registries: Arc::new(Dynamic::default()),
             joined: false,
@@ -1135,6 +1138,15 @@ impl Game<'_> {
                             "multiplayer.downloadingTerrain",
                             "Loading terrain...",
                         );
+                    }
+                }
+                Event::VoiceServer(compatibility, host) => {
+                    log::info!("Heisen: the server runs Simple Voice Chat ({compatibility})");
+                    if let Some(remote) = &mut self.remote {
+                        remote.voice = Some(horizon_client::voicechat::VoiceChat::new(
+                            compatibility,
+                            host,
+                        ));
                     }
                 }
                 Event::Brand(brand) => {
@@ -2163,6 +2175,21 @@ impl Game<'_> {
             // ClientCommonPacketListenerImpl.handlePing runs on the game
             // thread, after all preceding packets (especially teleports).
             C::Ping(p) => self.send(S::Pong(p)),
+            C::CustomPayload(p) if p.channel == horizon_protocol::voicechat::SECRET => {
+                let Some(voice) = self.remote.as_mut().and_then(|r| r.voice.as_mut()) else {
+                    return Ok(());
+                };
+                match voice.connect(&p.data) {
+                    // ClientVoicechat: the server learns the client's voice chat is on.
+                    Ok(()) => self.send(S::CustomPayload(
+                        horizon_protocol::packets::configuration::CustomPayload {
+                            channel: horizon_protocol::voicechat::UPDATE_STATE.into(),
+                            data: horizon_protocol::voicechat::update_state(false),
+                        },
+                    )),
+                    Err(e) => log::warn!("Heisen: voice chat not connected: {e}"),
+                }
+            }
             // PingDebugMonitor.onPongReceived.
             C::PongResponse(p) => {
                 let delay = self.debug_millis() - p.time;
@@ -4303,7 +4330,51 @@ impl Game<'_> {
         if self.remote.as_ref().is_some_and(|r| r.joined) {
             self.send(S::ClientTickEnd(Empty));
         }
+        self.tick_voice();
         Ok(())
+    }
+
+    /// Simple Voice Chat: ask for the secret once playing, and keep its positions and
+    /// push-to-talk key current (V, held while playing).
+    fn tick_voice(&mut self) {
+        let talking = self.screen == Screen::Playing && self.physical_keys.contains(&KeyCode::KeyV);
+        let listener = self.player.as_ref().map(|p| p.position);
+        let players: HashMap<u128, [f64; 3]> =
+            self.remote.as_ref().map_or_else(HashMap::new, |r| {
+                self.mobs
+                    .iter()
+                    .filter_map(|m| {
+                        let uuid = r.level_players.get(&(m.id as i32))?;
+                        Some((*uuid, [m.position.x, m.position.y, m.position.z]))
+                    })
+                    .collect()
+            });
+        let Some(r) = self.remote.as_mut().filter(|r| r.joined) else {
+            return;
+        };
+        let Some(voice) = r.voice.as_mut() else {
+            return;
+        };
+        if !voice.requested {
+            voice.requested = true;
+            let data = voice.request();
+            self.send(S::CustomPayload(
+                horizon_protocol::packets::configuration::CustomPayload {
+                    channel: horizon_protocol::voicechat::REQUEST_SECRET.into(),
+                    data,
+                },
+            ));
+            return;
+        }
+        voice
+            .talking
+            .store(talking, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut p) = voice.positions.lock() {
+            if let Some(l) = listener {
+                p.listener = [l.x, l.y, l.z];
+            }
+            p.players = players;
+        }
     }
 
     fn tick_remote_level(&mut self) -> Result<()> {

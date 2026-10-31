@@ -31,7 +31,8 @@ pub fn route(address: &str, resources: &Path) -> Result<Option<String>, String> 
     let Ok((status, _)) = crate::net::ping(address, Duration::from_secs(5)) else {
         return Ok(None);
     };
-    if status["version"]["protocol"].as_i64() != Some(horizon_neoforge_bridge::PROTOCOL_767.into()) {
+    if status["version"]["protocol"].as_i64() != Some(horizon_neoforge_bridge::PROTOCOL_767.into())
+    {
         return Ok(None);
     }
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
@@ -64,7 +65,10 @@ pub fn route(address: &str, resources: &Path) -> Result<Option<String>, String> 
             }
         })
         .map_err(|e| e.to_string())?;
-    log::info!("Heisen: {} is a NeoForge 1.21.1 server; joining through the bridge", crate::net::shown_address(address));
+    log::info!(
+        "Heisen: {} is a NeoForge 1.21.1 server; joining through the bridge",
+        crate::net::shown_address(address)
+    );
     bridges.insert(address.to_owned(), local);
     Ok(Some(format!("127.0.0.1:{local}")))
 }

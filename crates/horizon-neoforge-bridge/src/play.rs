@@ -75,6 +75,8 @@ const SAME_SERVERBOUND: &[&str] = &[
     "chat_command",
     "select_trade",
     "rename_item",
+    // Mods' own payloads (Simple Voice Chat's) pass through as they are.
+    "custom_payload",
 ];
 
 /// Name → id over a generated `NAMES` table.
@@ -534,7 +536,18 @@ impl Play {
                             return self.clientbound(id, w.rest());
                         }
                     }
-                    _ => {}
+                    channel
+                        if channel.starts_with("neoforge:")
+                            || channel.starts_with("minecraft:") => {}
+                    // Mods' own payloads go on to the client, which reads those it knows
+                    // (Simple Voice Chat's) and ignores the rest.
+                    channel => {
+                        let mut w = Writer::new();
+                        w.varint(horizon_protocol::ids::play::clientbound::CUSTOM_PAYLOAD);
+                        w.string(channel);
+                        w.bytes(r.rest());
+                        return Ok(vec![w.data]);
+                    }
                 }
                 return Ok(Vec::new());
             }

@@ -46,6 +46,9 @@ pub enum Event {
     /// Entity types the server adds beyond the client's registry
     /// (`horizon_protocol::modded`).
     ModdedEntities(Vec<horizon_protocol::modded::ModdedEntity>),
+    /// The server runs Simple Voice Chat (`horizon_protocol::voicechat::SERVER`, from the
+    /// NeoForge bridge): its compatibility version and host.
+    VoiceServer(i32, String),
     /// Configuration finished: the play state begins with these registries.
     Joined {
         registries: Arc<Dynamic>,
@@ -806,6 +809,10 @@ fn receive_brand(payload: &cfg::CustomPayload, send: &Sender<Event>) {
         && let Ok(entities) = horizon_protocol::modded::read(&payload.data)
     {
         let _ = send.send(Event::ModdedEntities(entities));
+    } else if payload.channel == horizon_protocol::voicechat::SERVER
+        && let Ok((compatibility, host)) = horizon_protocol::voicechat::read_server(&payload.data)
+    {
+        let _ = send.send(Event::VoiceServer(compatibility, host));
     }
 }
 

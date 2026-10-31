@@ -15,8 +15,8 @@ pub use horizon_client_render::{
     options_ui, overlay, pack_screen, packs, par, particles, poi_sections, potent_sulfur,
     providers, screen_draw, screen_effects, sculk, section_mask, settings, shader_pack_list, signs,
     skins, sound_engine, sound_events, sound_preview, spans, split_layout, sprites, streaming,
-    tab_list, telemetry, testgen, title_edition, trims, ui, vault, weather, widgets, world,
-    worldborder, zip,
+    tab_list, telemetry, testgen, title_edition, trims, ui, vault, voice_audio, weather, widgets,
+    world, worldborder, zip,
 };
 pub mod attack_strength;
 pub mod attribute_updates;
@@ -102,6 +102,7 @@ pub mod reconnect;
 pub mod save;
 pub mod scoreboard_cmd;
 pub mod screen_layout;
+pub mod voicechat;
 pub use horizon_server_files as server;
 pub mod server_packs;
 pub mod shadows;

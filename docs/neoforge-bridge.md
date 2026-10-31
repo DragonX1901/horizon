@@ -28,6 +28,36 @@ It does three things:
 
 The world then opens from the Singleplayer screen like any other.
 
+## Multiplayer
+
+Join a NeoForge 1.21.1 server from the Multiplayer screen like any other. The game sees the
+server's protocol (767) in the status ping and joins through the bridge, run inside the game on a
+loopback port (`crates/horizon-client/src/neoforge.rs`). Online-mode servers work when you're
+signed in: the bridge logs in as you with the game's account.
+
+The server needs the bridge's companion mod, and you need its mods' content:
+
+```sh
+python3 tools/neoforge_bridge/setup_world.py --mods ~/server-mods --home ~/.local/share/horizon --join MyServer
+# put the printed horizon-bridge-neoforge.jar in the server's mods/ folder
+```
+
+Other Heisen players join a modded single-player world once it is opened to LAN; they need the
+same content mods (`--join` with the same mod folder).
+
+## Simple Voice Chat
+
+When the server runs [Simple Voice Chat](https://modrinth.com/plugin/simple-voice-chat) (2.6 or
+2.7 for 1.21.1), the game joins its voice server: hold **V** to talk; other players' voices play
+quieter with distance, at full volume in a group. The companion mod tells the game the mod's
+compatibility version; the voice packets travel over UDP straight to the server's voice port
+(open it, 24454 by default, as for Java players). Code: `horizon_protocol::voicechat` (the
+protocol, AES-GCM), `horizon_client::voicechat` (connection, Opus), `voice_audio` (microphone and
+playback).
+
+Not yet: the mod's own screens (groups, settings, the volume of each player), whispering, voice
+activation instead of push-to-talk, and choosing the microphone (the system default is used).
+
 The rest of this page is the design.
 
 Horizon draws what the server sends. The mods' logic

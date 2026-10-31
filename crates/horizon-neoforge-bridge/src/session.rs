@@ -44,7 +44,10 @@ pub struct Options {
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Options")
-            .field("server", &format_args!("{}:{}", self.server_host, self.server_port))
+            .field(
+                "server",
+                &format_args!("{}:{}", self.server_host, self.server_port),
+            )
             .field("max_players", &self.max_players)
             .field("authenticate", &self.authenticate.is_some())
             .finish_non_exhaustive()
@@ -208,7 +211,8 @@ fn login(
             }
             // 767's encryption request is 777's; the bridge answers it as the player.
             v767::login::clientbound::HELLO => {
-                let login::Clientbound::Hello(hello) = login::Clientbound::decode(id, &body)? else {
+                let login::Clientbound::Hello(hello) = login::Clientbound::decode(id, &body)?
+                else {
                     return Err(Error::new("Bad 767 login hello"));
                 };
                 let key = horizon_protocol::rsa::RsaPublicKey::from_der(&hello.public_key)
@@ -561,6 +565,7 @@ impl Configuration {
             neoforge::BRIDGE_ENTITY_TYPES => {
                 self.facts.entity_types = neoforge::read_entity_types(&mut r)?
             }
+            neoforge::BRIDGE_VOICECHAT => self.facts.voicechat = Some(r.i32()?),
             neoforge::BRIDGE_BLOCK_STATES => {
                 self.facts.block_states = Some(neoforge::read_block_states(&mut r)?)
             }
@@ -640,6 +645,19 @@ fn configuration(
                             v777::configuration::clientbound::CUSTOM_PAYLOAD,
                             |w| {
                                 w.string(horizon_protocol::modded::CHANNEL);
+                                w.bytes(&data);
+                            },
+                        ))?;
+                    }
+                    if let Some(compatibility) = state.facts.voicechat {
+                        let data = horizon_protocol::voicechat::write_server(
+                            compatibility,
+                            &options.server_host,
+                        );
+                        client_writer.send(&packet(
+                            v777::configuration::clientbound::CUSTOM_PAYLOAD,
+                            |w| {
+                                w.string(horizon_protocol::voicechat::SERVER);
                                 w.bytes(&data);
                             },
                         ))?;

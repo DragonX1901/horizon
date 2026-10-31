@@ -692,7 +692,11 @@ impl<'a> Plan<'a> {
             if b.decl.item {
                 // A block whose template has no item (a fluid) keeps its block, without one.
                 let Some(item) = b.item.as_deref() else {
-                    log::warn!("Heisen: {}: template {} has no item; the block has none", b.decl.id, b.decl.template);
+                    log::warn!(
+                        "Heisen: {}: template {} has no item; the block has none",
+                        b.decl.id,
+                        b.decl.template
+                    );
                     continue;
                 };
                 items.push(NewItem {
