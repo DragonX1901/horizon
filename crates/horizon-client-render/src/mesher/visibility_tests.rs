@@ -80,6 +80,7 @@ fn info(solid: bool) -> Info {
         tier: 0,
         emissive: false,
         fluid: FluidState::EMPTY,
+        fluid_layers: None,
         model: false,
         block_entity: false,
         tints: [Tint::None; 2],

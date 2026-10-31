@@ -76,6 +76,8 @@ pub struct BlockProperties {
     /// Drawn by its block entity (`RenderShape.ENTITYBLOCK_ANIMATED`) rather than the chunk:
     /// the game draws its model by itself, turning as its block entity says.
     pub animated: Option<bool>,
+    /// A fluid block's own still and flowing textures (`ns:fluid/x_still`, `..._flow`).
+    pub fluid_textures: Option<[String; 2]>,
 }
 
 /// Per-state outline and collision boxes, selected by one state property.

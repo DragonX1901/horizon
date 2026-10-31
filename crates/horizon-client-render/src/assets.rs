@@ -96,6 +96,9 @@ pub struct RenderAssets {
     pub translucent_layers: Vec<bool>,
     /// Each layer's `MipmapGenerator` settings.
     pub sprite_mips: Vec<crate::mipmap::Settings>,
+    /// Mods' fluid blocks' own still and flowing sprites, by block
+    /// (`horizon-fluid-sprites.json`, written by the content build).
+    pub fluid_sprites: std::collections::BTreeMap<String, [String; 2]>,
 }
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -199,6 +202,9 @@ impl Assets {
         RenderAssets::load_with(root, self, false)
     }
 }
+/// In a content root: mods' fluid blocks' own sprites, `{block: [still, flow]}`.
+pub const FLUID_SPRITES: &str = "horizon-fluid-sprites.json";
+
 impl RenderAssets {
     pub fn load(root: &Path, assets: &Assets) -> Result<Self> {
         Self::load_with(root, assets, true)
@@ -231,6 +237,15 @@ impl RenderAssets {
         for stage in 0..10 {
             sprites.insert(root, &format!("minecraft:block/destroy_stage_{stage}"))?;
         }
+        let fluid_sprites: std::collections::BTreeMap<String, [String; 2]> =
+            std::fs::read(root.join(FLUID_SPRITES))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default();
+        let fluid_sprites = fluid_sprites
+            .into_iter()
+            .filter(|(_, pair)| pair.iter().all(|s| sprites.insert(root, s).is_ok()))
+            .collect();
         sprites.save_disk_cache();
         if draws {
             sprites.finish();
@@ -252,6 +267,7 @@ impl RenderAssets {
             sprite_layers: sprites.layers,
             translucent_layers: sprites.translucent,
             sprite_mips: sprites.mips,
+            fluid_sprites,
         })
     }
 }

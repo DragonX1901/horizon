@@ -1260,6 +1260,7 @@ pub fn carry(
     }
     let owned: Vec<String> = owned.iter().map(|n| n.to_string()).collect();
     let owned: Vec<&str> = owned.iter().map(String::as_str).collect();
+    fluid_textures(&inside, id);
     unregistered_recipes(&inside, &outside, id, &owned, &mut report)?;
     let q = |s: &str| toml::Value::String(s.to_owned()).to_string();
     let name = if info.name.is_empty() { id } else { &info.name };
@@ -1293,6 +1294,75 @@ fn recipe_result(recipe: &Value) -> Option<&str> {
     r.as_str()
         .or_else(|| r["id"].as_str())
         .or_else(|| r["item"].as_str())
+}
+
+/// Each fluid block's own textures: NeoForge's fluid types name them in code, so they are found
+/// by name, `<fluid>_still` and `<fluid>_flow` (or `_flowing`) anywhere under the mod's
+/// textures, and declared on the block (`fluid_textures`).
+fn fluid_textures(inside: &Path, id: &str) {
+    let mut pngs = Vec::new();
+    let mut stack = vec![inside.join("assets")];
+    while let Some(d) = stack.pop() {
+        for f in fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = f.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|e| e == "png") {
+                pngs.push(p);
+            }
+        }
+    }
+    // assets/<ns>/textures/<path>.png -> <ns>:<path>
+    let sprite = |p: &Path| -> Option<String> {
+        let rest = p.strip_prefix(inside.join("assets")).ok()?;
+        let mut parts = rest.iter();
+        let ns = parts.next()?.to_str()?;
+        (parts.next()? == "textures").then_some(())?;
+        let tail: std::path::PathBuf = parts.collect();
+        Some(format!(
+            "{ns}:{}",
+            tail.with_extension("").to_str()?.replace('\\', "/")
+        ))
+    };
+    let find = |stems: &[String]| {
+        pngs.iter()
+            .find(|p| {
+                p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|s| stems.iter().any(|w| w == s))
+            })
+            .and_then(|p| sprite(p))
+    };
+    let decl = inside.join(format!("data/{id}/horizon/block"));
+    for f in fs::read_dir(&decl).into_iter().flatten().flatten() {
+        let path = f.path();
+        let Some(mut v) = fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        else {
+            continue;
+        };
+        if !matches!(
+            v["template"].as_str(),
+            Some("minecraft:water" | "minecraft:lava")
+        ) {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let still = find(&[format!("{name}_still"), format!("{name}_fluid_still")]);
+        let flow = find(&[
+            format!("{name}_flow"),
+            format!("{name}_flowing"),
+            format!("{name}_fluid_flow"),
+        ]);
+        if let Some(still) = still {
+            let flow = flow.unwrap_or_else(|| still.clone());
+            v["properties"]["fluid_textures"] = json!([still, flow]);
+            let _ = fs::write(&path, serde_json::to_vec_pretty(&v).unwrap_or_default());
+        }
+    }
 }
 
 /// Moves the recipes whose result is an undeclared item of the mod's own namespaces from

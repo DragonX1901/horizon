@@ -151,7 +151,8 @@ Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carr
 - **Signs and chests** (`tools/neoforge_bridge/mod_entity_blocks.py`, needs `--client-dir`): sign
   textures are laid out as 26.3 lays them out, learnt pixel by pixel from vanilla's own woods;
   chest textures are copied to `<ns>:entity/chest/<block>`.
-- **Fluids** flow and draw as their template fluid (water or lava).
+- **Fluids** flow as their template fluid (water or lava) and draw with their own `<fluid>_still`
+  and `_flow` textures, found by name (their tint, set in code, is not applied).
 - **Turning blocks** (`game/kinetic.rs`): blocks drawn by their block entity
   (`ENTITYBLOCK_ANIMATED`) and Create's shaft blocks are left out of the chunk and drawn by
   themselves, turning at their block entity's `Speed` (the bridge sends `horizon:block_speeds`).
@@ -167,7 +168,6 @@ Gaps:
   shaft), belts, other block entity renderers,
   backpacks and other models built in code, model parts a mod toggles in code (Naturalist's
   bears) and custom screen artwork (menus open as plain chests).
-- Fluids use water's or lava's textures, not the mod's.
 - Particles move as a poof does, whatever their mod's code does.
 
 Without `--resources` the bridge stops after configuration, shows the client what it captured

@@ -305,6 +305,8 @@ struct Info {
     /// `emissiveRendering`: drawn and sampled at full brightness.
     emissive: bool,
     fluid: FluidState,
+    /// A mod's fluid's own still and flowing sprite layers.
+    fluid_layers: Option<(u16, u16)>,
     model: bool,
     /// The state has a block entity (candidates for block-entity renderers).
     block_entity: bool,
@@ -475,6 +477,13 @@ impl MeshTables {
                 emission: s.emission,
                 tier: hdr_tier(name, s.emission),
                 emissive,
+                fluid_layers: render
+                    .fluid_sprites
+                    .get(&*s.name)
+                    .and_then(|[still, flow]| {
+                        let l = |n: &String| render.sprite_layers.get(n).map(|&l| l as u16);
+                        Some((l(still)?, l(flow)?))
+                    }),
                 fluid: modded_fluid(state, &s.fluid)
                     .map_or_else(|| FluidState::from_block(state), Ok)?,
                 model: s.render_shape == RenderShape::Model,

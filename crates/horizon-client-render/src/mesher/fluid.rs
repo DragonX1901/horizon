@@ -222,7 +222,8 @@ pub(super) fn tesselate(
         return;
     }
     let water = matches!(kind, FluidKind::Water | FluidKind::FlowingWater);
-    let tint = if water {
+    // A mod's fluid with its own sprites: its colour is in them (or in code we can't run).
+    let tint = if water && me.fluid_layers.is_none() {
         water_color & 0xFF_FFFF
     } else {
         0xFF_FFFF
@@ -296,7 +297,9 @@ pub(super) fn tesselate(
             lighting::coords(pad, at(above), above),
         ))
     };
-    let (still, flow, overlay) = if water {
+    let (still, flow, overlay) = if let Some((still, flow)) = me.fluid_layers {
+        (still, flow, None)
+    } else if water {
         (
             tables.water_still,
             tables.water_flow,

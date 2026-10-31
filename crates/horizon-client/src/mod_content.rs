@@ -1768,6 +1768,17 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
     if mods.iter().any(|m| !m.content.blocks.is_empty()) {
         overlay.write(crate::content_identity::MARKER, b"1")?;
     }
+    let fluid_sprites: BTreeMap<&str, &[String; 2]> = mods
+        .iter()
+        .flat_map(|m| &m.content.blocks)
+        .filter_map(|b| Some((b.id.as_str(), b.properties.fluid_textures.as_ref()?)))
+        .collect();
+    if !fluid_sprites.is_empty() {
+        overlay.write(
+            crate::assets::FLUID_SPRITES,
+            &serde_json::to_vec(&fluid_sprites)?,
+        )?;
+    }
     overlay.write(WARNINGS, warnings.join("\n").as_bytes())?;
     phase("done");
     Ok(warnings)
