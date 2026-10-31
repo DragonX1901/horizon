@@ -238,6 +238,12 @@ impl Game<'_> {
         p: &Particle,
         at: [f64; 3],
     ) -> Option<ParticleOptions> {
+        if let Some(name) = self.remote.as_ref()?.modded_particles.get(&p.id) {
+            return Some(ParticleOptions {
+                modded: Some(name.clone()),
+                ..ParticleOptions::simple(ParticleType::Poof)
+            });
+        }
         let name = self
             .remote
             .as_ref()?

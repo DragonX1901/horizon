@@ -47,6 +47,9 @@ pub struct ParticleOptions {
     /// `GeyserParticleOptions.waterBlocks` and `GeyserBaseParticleOptions`'
     /// `waterBlocks` and `burstImpulseBase` (0 where the type has none).
     pub geyser: Option<(i32, f32)>,
+    /// A mod's particle (`ns:name`, through the NeoForge bridge): drawn with its own sprite set
+    /// (`assets/<ns>/particles/<name>.json`), moving as a poof does.
+    pub modded: Option<String>,
 }
 impl ParticleOptions {
     pub fn simple(ty: ParticleType) -> Self {
@@ -59,6 +62,7 @@ impl ParticleOptions {
             trail: None,
             item: None,
             geyser: None,
+            modded: None,
         }
     }
     /// `GeyserParticleOptions(type, waterBlocks)`.
@@ -1056,6 +1060,9 @@ pub struct ParticleEngine {
     atlas: HashMap<String, (Rect, bool)>,
     sets: HashMap<ParticleType, u32>,
     set_sprites: Vec<Vec<u32>>,
+    /// The resource root, and mods' sprite sets as they are first used.
+    root: std::path::PathBuf,
+    modded_sets: HashMap<String, Option<u32>>,
     /// `TrackingEmitter`s: particle type, entity feet position, width, height, ticks left.
     emitters: Vec<(ParticleOptions, [f64; 3], f64, f64, u32)>,
     /// Camera position for the 32-block spawn limiter.
@@ -1090,6 +1097,8 @@ impl ParticleEngine {
             atlas: HashMap::new(),
             sets: HashMap::new(),
             set_sprites: Vec::new(),
+            root: std::path::PathBuf::new(),
+            modded_sets: HashMap::new(),
             emitters: Vec::new(),
             starters: Vec::new(),
             camera: [0.0; 3],
@@ -1122,6 +1131,8 @@ impl ParticleEngine {
         self.sets.clear();
         self.set_sprites.clear();
         self.item_sprites.clear();
+        self.modded_sets.clear();
+        self.root = root.to_owned();
         self.load_sprites(root);
     }
     /// The sprite sets of every `particles/*.json` under `root`.
@@ -1150,6 +1161,40 @@ impl ParticleEngine {
                 self.set_sprites.push(sprites);
             }
         }
+    }
+    /// A mod particle's sprite set: `assets/<ns>/particles/<name>.json`, its textures
+    /// `<ns>:particle/<texture>` in the atlas.
+    fn modded_set(&mut self, name: &str) -> Option<u32> {
+        if let Some(&set) = self.modded_sets.get(name) {
+            return set;
+        }
+        let (ns, path) = name.split_once(':')?;
+        let file = self.root.join(format!("assets/{ns}/particles/{path}.json"));
+        let json = std::fs::read(file)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+        let sprites: Vec<u32> = json
+            .as_ref()
+            .and_then(|j| j["textures"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t.as_str())
+            .map(|t| {
+                let (tns, tpath) = t.split_once(':').unwrap_or((ns, t));
+                let name = if tns == "minecraft" {
+                    format!("particle/{tpath}")
+                } else {
+                    format!("{tns}:particle/{tpath}")
+                };
+                self.intern(&name)
+            })
+            .collect();
+        let set = (!sprites.is_empty()).then(|| {
+            self.set_sprites.push(sprites);
+            (self.set_sprites.len() - 1) as u32
+        });
+        self.modded_sets.insert(name.to_owned(), set);
+        set
     }
     fn intern(&mut self, name: &str) -> u32 {
         if let Some(i) = self.names.iter().position(|n| n == name) {
@@ -1606,6 +1651,18 @@ impl ParticleEngine {
         seed: i64,
     ) -> Option<Particle> {
         use ParticleType as T;
+        if let Some(name) = &o.modded {
+            let set = self.modded_set(name)?;
+            let plain = ParticleOptions {
+                modded: None,
+                ..ParticleOptions::simple(T::Poof)
+            };
+            let mut particle = self.make(&plain, p, v, seed)?;
+            particle.set = Some(set);
+            particle.sprite = Sprite::Index(self.set_sprites[set as usize][0]);
+            particle.rgba = [1.0; 4];
+            return Some(particle);
+        }
         let ty = o.ty;
         let set = self.set_of(ty);
         let mut local = LegacyRandom::new(seed);

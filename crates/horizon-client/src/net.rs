@@ -49,6 +49,8 @@ pub enum Event {
     /// The server runs Simple Voice Chat (`horizon_protocol::voicechat::SERVER`, from the
     /// NeoForge bridge): its compatibility version and host.
     VoiceServer(i32, String),
+    /// Particle types the server's mods add (`horizon_protocol::modded::PARTICLES`).
+    ModdedParticles(Vec<(i32, String)>),
     /// Configuration finished: the play state begins with these registries.
     Joined {
         registries: Arc<Dynamic>,
@@ -809,6 +811,10 @@ fn receive_brand(payload: &cfg::CustomPayload, send: &Sender<Event>) {
         && let Ok(entities) = horizon_protocol::modded::read(&payload.data)
     {
         let _ = send.send(Event::ModdedEntities(entities));
+    } else if payload.channel == horizon_protocol::modded::PARTICLES
+        && let Ok(names) = horizon_protocol::modded::read_names(&payload.data)
+    {
+        let _ = send.send(Event::ModdedParticles(names));
     } else if payload.channel == horizon_protocol::voicechat::SERVER
         && let Ok((compatibility, host)) = horizon_protocol::voicechat::read_server(&payload.data)
     {

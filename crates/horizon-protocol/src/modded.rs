@@ -44,6 +44,30 @@ pub fn read(data: &[u8]) -> Result<Vec<ModdedEntity>> {
         .collect()
 }
 
+/// `horizon:modded_particles`: particle types the server's mods add, by the id the bridge
+/// sends them under (past the client's registry), so the client can draw them with the mod's
+/// own sprites.
+pub const PARTICLES: &str = "horizon:modded_particles";
+/// Where the bridge numbers mods' particle types from.
+pub const FIRST_PARTICLE: i32 = 1 << 14;
+
+pub fn write_names(names: &[(i32, String)]) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.varint(names.len() as i32);
+    for (id, name) in names {
+        w.varint(*id);
+        w.string(name);
+    }
+    w.data
+}
+
+pub fn read_names(data: &[u8]) -> Result<Vec<(i32, String)>> {
+    let mut r = Reader::new(data);
+    (0..r.count(1 << 16)?)
+        .map(|_| Ok((r.varint()?, r.string(32767)?)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

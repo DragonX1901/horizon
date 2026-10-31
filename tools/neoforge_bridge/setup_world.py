@@ -125,6 +125,8 @@ def main():
     parser.add_argument("--java", default="java", help="the Java to run the server with (21 for Cobblemon)")
     parser.add_argument("--neoforge", help="the NeoForge 21.1 version (default: the newest)")
     parser.add_argument("--resources", type=Path, default=ROOT / ".local/horizon-client/26.3")
+    parser.add_argument("--reuse-oracle", action="store_true",
+                        help="keep the oracle's facts from the last run (same mods): only carry over again")
     parser.add_argument("--client-dir", type=Path,
                         help="a launcher folder with NeoForge's 1.21.1 client installed (--installClient): "
                              "bakes the entity models mods define in Java")
@@ -155,12 +157,17 @@ def main():
     if not oracle_home.exists():
         oracle_home.parent.mkdir(parents=True, exist_ok=True)
         oracle_home.symlink_to(server)
+    facts = work / "oracle" / "facts.json"
+    kept = facts.read_bytes() if args.reuse_oracle and facts.exists() else None
     shutil.rmtree(work, ignore_errors=True)
     run(BIN / "horizon-port-pack", "import", mods, work)
     run(BIN / "horizon-port-pack", "inventory", work)
-    env = dict(os.environ, HORIZON_NEOFORGE=version)
-    run(sys.executable, ROOT / "tools/neoforge_oracle.py", "export", "--jars", mods,
-        "--out", work / "oracle" / "facts.json", env=env)
+    if kept is not None:
+        facts.parent.mkdir(parents=True, exist_ok=True)
+        facts.write_bytes(kept)
+    else:
+        env = dict(os.environ, HORIZON_NEOFORGE=version)
+        run(sys.executable, ROOT / "tools/neoforge_oracle.py", "export", "--jars", mods, "--out", facts, env=env)
     records = json.loads((work / "inventory.json").read_text())
     keys = [r["key"] for r in records if r.get("key")]
     run(BIN / "horizon-port-pack", "fetch", work, "--from", mods, *keys)

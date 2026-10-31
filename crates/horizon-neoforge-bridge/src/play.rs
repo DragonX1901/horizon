@@ -863,7 +863,9 @@ impl Play {
                     ticks: r.varint()?,
                 })
             }
-            n if !n.starts_with("minecraft:") => return Ok(None),
+            // A mod's: drawn by its sprites alone. Its options, when it has any, come last in
+            // the packets that carry particles (entity data is framed), so they're left unread.
+            n if !n.starts_with("minecraft:") => None,
             _ => None,
         };
         Ok(Some(Particle { id: *id, data }))

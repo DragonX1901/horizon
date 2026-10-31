@@ -463,6 +463,8 @@ impl HudAtlas {
             for ns in namespaces.flatten() {
                 if ns.file_name() != "minecraft" {
                     walk(&ns.path().join("textures/entity"), &mut files);
+                    // Mods' particles (`<namespace>:particle/...`, particles.rs modded_set).
+                    walk(&ns.path().join("textures/particle"), &mut files);
                     // Cobblemon's species textures, base ones only
                     // (textures/pokemon/<n>_<name>/<name>.png).
                     let mut pokemon = Vec::new();

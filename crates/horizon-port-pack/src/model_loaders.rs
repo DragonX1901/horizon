@@ -255,7 +255,7 @@ fn obj_elements(
     let mut uvs: Vec<[f64; 2]> = Vec::new();
     let mut materials: std::collections::HashMap<String, String> = Default::default();
     let mut texture = "#0".to_owned();
-    let mut elements = Vec::new();
+    let mut faces: Vec<(Vec<(V3, [f64; 2])>, String)> = Vec::new();
     for line in text.lines() {
         let mut words = line.split_whitespace();
         let numbers = |w: std::str::SplitWhitespace| {
@@ -303,31 +303,58 @@ fn obj_elements(
                         let p: usize = parts.next()?.parse().ok()?;
                         let t: usize = parts.next()?.parse().ok()?;
                         Some((
-                            scale(*positions.get(p.checked_sub(1)?)?, 16.0),
+                            *positions.get(p.checked_sub(1)?)?,
                             *uvs.get(t.checked_sub(1)?)?,
                         ))
                     })
                     .collect();
-                if let Some(e) = quad(&corners, &texture) {
-                    elements.push(e);
-                }
+                faces.push((corners, texture.clone()));
             }
             _ => {}
         }
     }
-    (!elements.is_empty()).then_some(elements)
+    // Block units, as NeoForge reads them; a mesh past any block's reach is in pixels (a part
+    // its mod draws scaled down in code).
+    let extent = positions
+        .iter()
+        .flatten()
+        .fold(0.0f64, |m, v| m.max(v.abs()));
+    let unit = if extent > 3.0 { 1.0 } else { 16.0 };
+    let elements: Vec<Value> = faces
+        .iter()
+        .flat_map(|(corners, texture)| {
+            let corners: Vec<_> = corners.iter().map(|&(p, t)| (scale(p, unit), t)).collect();
+            quad(&corners, texture)
+        })
+        // Pieces past the model bounds (a mesh reaching beyond the blocks around its own,
+        // which its mod draws in code) are left out: the rest still draws.
+        .filter(|e| {
+            ["from", "to"].iter().all(|k| {
+                e[*k].as_array().is_some_and(|c| {
+                    c.iter()
+                        .all(|v| v.as_f64().is_some_and(|v| (-16.0..=32.0).contains(&v)))
+                })
+            })
+        })
+        .collect();
+    // A mesh this detailed would cost more to draw than it shows.
+    (!elements.is_empty() && elements.len() <= 4096).then_some(elements)
 }
 
-/// One quad (model units, uv 0..1) as a flat element.
-fn quad(corners: &[(V3, [f64; 2])], texture: &str) -> Option<Value> {
+/// One quad (model units, uv 0..1) as flat elements, in pieces no longer than 8 units: each
+/// piece is centred on its rotation origin, so it stays inside the model bounds wherever the
+/// mesh does.
+fn quad(corners: &[(V3, [f64; 2])], texture: &str) -> Vec<Value> {
     if corners.len() != 4 {
-        return None;
+        return Vec::new();
     }
     // Start at the corner from which the texture's u runs along the first edge.
-    let start = (0..4).find(|&i| {
-        let (a, b) = (corners[i].1, corners[(i + 1) % 4].1);
-        (b[0] - a[0]).abs() > (b[1] - a[1]).abs()
-    })?;
+    let start = (0..4)
+        .find(|&i| {
+            let (a, b) = (corners[i].1, corners[(i + 1) % 4].1);
+            (b[0] - a[0]).abs() > (b[1] - a[1]).abs()
+        })
+        .unwrap_or(0);
     let c = |k: usize| corners[(start + k) % 4];
     let (p0, t0) = c(0);
     let (p1, t1) = c(1);
@@ -335,7 +362,7 @@ fn quad(corners: &[(V3, [f64; 2])], texture: &str) -> Option<Value> {
     let (e1, e2) = (sub(p1, p0), sub(p3, p0));
     let (w, h) = (len(e1), len(e2));
     if w < 1e-6 || h < 1e-6 {
-        return None;
+        return Vec::new();
     }
     let (u, v) = (scale(e1, 1.0 / w), scale(e2, 1.0 / h));
     let n = cross(u, v);
@@ -349,14 +376,34 @@ fn quad(corners: &[(V3, [f64; 2])], texture: &str) -> Option<Value> {
         ((-n[1]).atan2(v[1]), 0.0)
     };
     let deg = |a: f64| round(a.to_degrees());
-    let to = [p0[0] + w, p0[1] + h, p0[2]];
-    let uv = [t0[0] * 16.0, t3[1] * 16.0, t1[0] * 16.0, t0[1] * 16.0];
-    Some(json!({
-        "from": p0.map(round),
-        "to": to.map(round),
-        "rotation": {"origin": p0.map(round), "x": deg(x), "y": deg(y), "z": deg(z)},
-        "faces": {"south": {"uv": uv.map(round), "texture": texture}}
-    }))
+    let (nu, nv) = (
+        (w / 8.0).ceil().max(1.0) as usize,
+        (h / 8.0).ceil().max(1.0) as usize,
+    );
+    let at = |s: f64, t: f64| -> V3 { std::array::from_fn(|i| p0[i] + e1[i] * s + e2[i] * t) };
+    let uv_at = |s: f64, t: f64| -> [f64; 2] {
+        std::array::from_fn(|i| t0[i] + (t1[i] - t0[i]) * s + (t3[i] - t0[i]) * t)
+    };
+    let mut out = Vec::with_capacity(nu * nv);
+    for i in 0..nu {
+        for j in 0..nv {
+            let (s0, s1) = (i as f64 / nu as f64, (i + 1) as f64 / nu as f64);
+            let (q0, q1) = (j as f64 / nv as f64, (j + 1) as f64 / nv as f64);
+            let centre = at((s0 + s1) / 2.0, (q0 + q1) / 2.0);
+            let (hw, hh) = (w * (s1 - s0) / 2.0, h * (q1 - q0) / 2.0);
+            let from = [centre[0] - hw, centre[1] - hh, centre[2]];
+            let to = [centre[0] + hw, centre[1] + hh, centre[2]];
+            let (a, b, d) = (uv_at(s0, q0), uv_at(s1, q0), uv_at(s0, q1));
+            let uv = [a[0] * 16.0, d[1] * 16.0, b[0] * 16.0, a[1] * 16.0];
+            out.push(json!({
+                "from": from.map(round),
+                "to": to.map(round),
+                "rotation": {"origin": centre.map(round), "x": deg(x), "y": deg(y), "z": deg(z)},
+                "faces": {"south": {"uv": uv.map(round), "texture": texture}}
+            }));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -443,7 +490,8 @@ mod tests {
             a("z").sin(),
             a("z").cos(),
         );
-        let o = [f("from", 0), f("from", 1), f("from", 2)];
+        let _ = f;
+        let o: V3 = std::array::from_fn(|i| r["origin"][i].as_f64().unwrap());
         let d = sub(local, o);
         let rows = [
             [cz * cy, -sz * cx + cz * sy * sx, sz * sx + cz * sy * cx],
@@ -458,20 +506,31 @@ mod tests {
         let obj = "mtllib a.mtl\nv 0 0 0.5\nv 1 0 0.5\nv 1 1 1\nv 0 1 1\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nusemtl m\nf 1/1 2/2 3/3 4/4\n";
         let elements =
             obj_elements(obj, false, &|_| Some("newmtl m\nmap_Kd #tex\n".into())).unwrap();
-        let e = &elements[0];
-        assert_eq!(e["faces"]["south"]["texture"], "#tex");
-        let (from, to) = (
-            [0.0, 0.0, 8.0],
-            [
-                e["to"][0].as_f64().unwrap(),
-                e["to"][1].as_f64().unwrap(),
-                8.0,
-            ],
-        );
-        let corner = place(e, [to[0], to[1], 8.0]);
-        for (got, want) in corner.iter().zip([16.0, 16.0, 16.0]) {
-            assert!((got - want).abs() < 1e-3, "{corner:?}");
+        assert_eq!(elements[0]["faces"]["south"]["texture"], "#tex");
+        // 16 by 17.9 units: 2 by 3 pieces. The first's low corner and the last's high corner,
+        // turned into place, are the mesh's corners (0,0,8) and (16,16,16).
+        assert_eq!(elements.len(), 6);
+        let corner =
+            |e: &Value, k: &str| -> V3 { std::array::from_fn(|i| e[k][i].as_f64().unwrap()) };
+        let low = place(&elements[0], corner(&elements[0], "from"));
+        let high = place(&elements[5], corner(&elements[5], "to"));
+        for (got, want) in low
+            .iter()
+            .chain(&high)
+            .zip([0.0, 0.0, 8.0, 16.0, 16.0, 16.0])
+        {
+            assert!((got - want).abs() < 1e-3, "{low:?} {high:?}");
         }
-        assert_eq!(place(e, from), from);
+        let long = quad(
+            &[
+                ([0.0; 3], [0.0, 0.0]),
+                ([40.0, 0.0, 0.0], [1.0, 0.0]),
+                ([40.0, 4.0, 0.0], [1.0, 1.0]),
+                ([0.0, 4.0, 0.0], [0.0, 1.0]),
+            ],
+            "#0",
+        );
+        assert_eq!(long.len(), 5);
+        assert_eq!(long[4]["faces"]["south"]["uv"][2], 16.0);
     }
 }

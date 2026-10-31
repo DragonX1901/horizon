@@ -128,6 +128,8 @@ pub(super) struct Remote {
     pub(super) modded_types: HashMap<String, Arc<horizon_client::mobs::MobType>>,
     /// Simple Voice Chat, when the server runs it (voicechat.rs).
     pub(super) voice: Option<horizon_client::voicechat::VoiceChat>,
+    /// Particle types the server's mods add, by the id it sends.
+    pub(super) modded_particles: HashMap<i32, String>,
     lang: Arc<Language>,
     pub(super) registries: Arc<Dynamic>,
     joined: bool,
@@ -516,6 +518,7 @@ impl Game<'_> {
             modded_names: HashMap::new(),
             modded_types: HashMap::new(),
             voice: None,
+            modded_particles: HashMap::new(),
             lang,
             registries: Arc::new(Dynamic::default()),
             joined: false,
@@ -1138,6 +1141,11 @@ impl Game<'_> {
                             "multiplayer.downloadingTerrain",
                             "Loading terrain...",
                         );
+                    }
+                }
+                Event::ModdedParticles(names) => {
+                    if let Some(remote) = &mut self.remote {
+                        remote.modded_particles = names.into_iter().collect();
                     }
                 }
                 Event::VoiceServer(compatibility, host) => {

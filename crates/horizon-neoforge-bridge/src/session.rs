@@ -662,6 +662,22 @@ fn configuration(
                             },
                         ))?;
                     }
+                    let modded_particles: Vec<(i32, String)> = ctx
+                        .particles
+                        .values()
+                        .filter(|(id, _)| *id >= horizon_protocol::modded::FIRST_PARTICLE)
+                        .cloned()
+                        .collect();
+                    if !modded_particles.is_empty() {
+                        let data = horizon_protocol::modded::write_names(&modded_particles);
+                        client_writer.send(&packet(
+                            v777::configuration::clientbound::CUSTOM_PAYLOAD,
+                            |w| {
+                                w.string(horizon_protocol::modded::PARTICLES);
+                                w.bytes(&data);
+                            },
+                        ))?;
+                    }
                     let play = Arc::new(Mutex::new(Play::new(ctx)));
                     let _ = play_tx.send(play.clone());
                     client_writer.send(&packet(
@@ -785,11 +801,15 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
                 server
                     .ids
                     .iter()
-                    .filter_map(|(&id, name)| {
-                        Some((
-                            id,
-                            (client_id("minecraft:particle_type", name)?, name.clone()),
-                        ))
+                    .enumerate()
+                    .filter_map(|(i, (&id, name))| {
+                        // Mods' types go past the client's registry (announced in
+                        // `horizon:modded_particles`).
+                        let client = client_id("minecraft:particle_type", name).or_else(|| {
+                            (!name.starts_with("minecraft:"))
+                                .then(|| horizon_protocol::modded::FIRST_PARTICLE + i as i32)
+                        })?;
+                        Some((id, (client, name.clone())))
                     })
                     .collect()
             })
