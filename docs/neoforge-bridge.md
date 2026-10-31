@@ -102,14 +102,24 @@ Taken from NeoForge's 1.21.1 branch (`ServerConfigurationPacketListenerImpl.java
 | Play: 767 → 777 translation (chunks, block state remap, entities and metadata, items and components, inventories, chat, commands) | **todo**: the largest part, one protocol step at a time (1.21.1 → 1.21.2 → … → 26.3) |
 | Modded play payloads (NeoForge's `advanced_add_entity`, `advanced_open_screen`, `sync_attachments`; mods' own) | **todo**: per mod; renderers and GUIs that exist only in Java client code won't draw |
 
+Mod mobs:
+- Every mod entity type reaches the client, including those mods spawn with their own packets, and
+  can be seen and hit. Each type is announced to the client in `horizon:modded_entities`.
+- Mobs with GeckoLib/Bedrock models (`geo/<name>.geo.json`) show those models, with their idle and
+  walk animations (`mobs/bedrock.rs`).
+- Mobs whose models are Java code get them baked by `export_mod_models.py`
+  (`setup_world.py --client-dir`). They move like vanilla mobs when their parts use vanilla's names.
+- Anything else is drawn as its hitbox.
+
+Mod menus with no client type open as chests with the menu's slots (`Generic` in `play.rs`).
+
 Gaps:
-- **Java-only client code doesn't run.** Create's turning shafts and belts, the mods' entity
-  models (Cobblemon's Pokémon), and custom screens and HUDs all need Horizon-side support or a
-  port: a model format loader for GeckoLib or Bedrock entities, data-driven screens, and per-mod
-  native ports.
-- **Modded entity types** don't spawn on the client yet; the bridge drops them.
-- **Particles, the command tree, the player list, attributes and mob effects** aren't
-  translated yet.
+- **Cobblemon's Pokémon** show as boxes. Their models are picked per species by Cobblemon's own
+  resolver files and Bedrock animations, which needs a Cobblemon-specific port.
+- **Java-only rendering:** Create's turning shafts and belts, block entity renderers, model
+  parts a mod toggles in code (Naturalist's sleeping and awake bear heads) and custom screen artwork
+  (menus open as plain chests) all need per-mod ports.
+- **Particles:** vibration particles and mods' particles with options are dropped.
 
 Without `--resources` the bridge stops after configuration, shows the client what it captured
 and disconnects. With `--dump` it writes the captured facts as JSON.
