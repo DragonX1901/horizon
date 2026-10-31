@@ -13,6 +13,8 @@ bridge, and the world keeps single player's rules:
 cargo build --profile fast -p horizon-port-pack -p horizon-client -p horizon-neoforge-bridge
 python3 tools/neoforge_bridge/setup_world.py --mods ~/my-mods --home ~/.local/share/horizon --world Modded
 # mods that need Java 21 (Cobblemon): add --java /path/to/java21/bin/java
+# mobs whose models are Java code: add --client-dir DIR, a launcher folder where the
+# NeoForge installer ran with --installClient (it needs the 1.21.1 client jar)
 ```
 
 It does three things:

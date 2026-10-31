@@ -68,6 +68,9 @@ def main():
     parser.add_argument("--java", default="java", help="the Java to run the server with (21 for Cobblemon)")
     parser.add_argument("--neoforge", help="the NeoForge 21.1 version (default: the newest)")
     parser.add_argument("--resources", type=Path, default=ROOT / ".local/horizon-client/26.3")
+    parser.add_argument("--client-dir", type=Path,
+                        help="a launcher folder with NeoForge's 1.21.1 client installed (--installClient): "
+                             "bakes the entity models mods define in Java")
     args = parser.parse_args()
 
     mods = args.mods.resolve()
@@ -120,6 +123,9 @@ def main():
     lines = [l for l in lines if l.split(":")[0] not in {f"mod.{m}" for m in installed}]
     lines += [f"mod.{m}:true" for m in installed]
     listing.write_text("\n".join(lines) + "\n")
+    if args.client_dir:
+        run(sys.executable, ROOT / "tools/neoforge_bridge/export_mod_models.py", "--client-dir", args.client_dir,
+            "--server-dir", server, "--mods", mods, "--home", home)
     world = home / "saves" / args.world
     world.mkdir(parents=True, exist_ok=True)
     marker = f"{server}\n" + (f"java={args.java}\n" if args.java != "java" else "")

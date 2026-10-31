@@ -22,8 +22,18 @@ pub fn load(root: &Path, id: &str) -> Option<(Part, Option<String>)> {
     let geo = ["geo", "geo/entity", "geo/entities", "geo/mob"]
         .iter()
         .map(|dir| assets.join(dir).join(format!("{name}.geo.json")))
-        .find(|p| p.exists())?;
-    let model = parse(&serde_json::from_slice(&std::fs::read(&geo).ok()?).ok()?)?;
+        .find(|p| p.exists());
+    let model = match geo {
+        Some(geo) => parse(&serde_json::from_slice(&std::fs::read(&geo).ok()?).ok()?)?,
+        // Models the mod builds in Java, baked by tools/neoforge_bridge/export_mod_models.py.
+        None => {
+            let baked: Value = serde_json::from_slice(
+                &std::fs::read(assets.join("horizon/entity_models.json")).ok()?,
+            )
+            .ok()?;
+            Part::parse("root", baked.get(id)?)
+        }
+    };
     let texture = [format!("entity/{name}"), format!("entity/{name}/{name}")]
         .into_iter()
         .find(|t| assets.join("textures").join(format!("{t}.png")).exists())
