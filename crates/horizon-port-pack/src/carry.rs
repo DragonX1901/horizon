@@ -291,6 +291,76 @@ pub fn renamed_ids(v: &mut Value) -> bool {
     }
 }
 
+/// Vanilla textures 26.3 renamed (the chain became the iron chain).
+const RENAMED_TEXTURES: [(&str, &str); 1] = [("block/chain", "block/iron_chain")];
+
+/// A 1.21.1 block model in 26.3's terms, in place; whether it changed. Mods' models name
+/// vanilla parents and textures that 26.3 renamed or folded away:
+/// - `block/template_farmland` (textures `dirt`, `top`) became farmland's
+///   `template_cube_bottom_top_indented` (`bottom`, `side`, `top`);
+/// - a texture path vanilla renamed ([`RENAMED_TEXTURES`]);
+/// - elements past vanilla's bounds.
+pub fn upgrade_model(v: &mut Value) -> bool {
+    let Some(model) = v.as_object_mut() else {
+        return false;
+    };
+    let vanilla = |s: &str| s.strip_prefix("minecraft:").unwrap_or(s).to_owned();
+    let mut changed = false;
+    if model
+        .get("parent")
+        .and_then(Value::as_str)
+        .map(vanilla)
+        .as_deref()
+        == Some("block/template_farmland")
+    {
+        model.insert(
+            "parent".into(),
+            json!("minecraft:block/template_cube_bottom_top_indented"),
+        );
+        if let Some(t) = model.get_mut("textures").and_then(Value::as_object_mut)
+            && let Some(dirt) = t.remove("dirt")
+        {
+            t.entry("bottom").or_insert_with(|| dirt.clone());
+            t.entry("side").or_insert_with(|| dirt.clone());
+            t.entry("particle").or_insert(dirt);
+        }
+        changed = true;
+    }
+    // NeoForge draws elements past vanilla's -16..32 box, which vanilla's loader refuses:
+    // they are clamped to it, so the model loads a little squashed instead of not at all.
+    for element in model
+        .get_mut("elements")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        for corner in ["from", "to"] {
+            for c in element
+                .get_mut(corner)
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(x) = c.as_f64().filter(|x| !(-16.0..=32.0).contains(x)) {
+                    *c = json!(x.clamp(-16.0, 32.0));
+                    changed = true;
+                }
+            }
+        }
+    }
+    if let Some(t) = model.get_mut("textures").and_then(Value::as_object_mut) {
+        for texture in t.values_mut() {
+            if let Some(s) = texture.as_str()
+                && let Some((_, new)) = RENAMED_TEXTURES.iter().find(|(old, _)| vanilla(s) == *old)
+            {
+                *texture = json!(format!("minecraft:{new}"));
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// A 1.21.1 advancement in 26.3's shape, in place: an `enter_block`
 /// criterion names its block as `blocks`, which 26.3 reads as a block list.
 /// 26.3 skips the old `block` field, so the criterion matched any block the
@@ -836,6 +906,14 @@ pub fn carry(
             {
                 report.worldgen += 1;
             }
+            if name.starts_with("assets/")
+                && rel.starts_with("models/")
+                && rel.ends_with(".json")
+                && let Ok(mut model) = serde_json::from_slice::<Value>(&bytes)
+                && upgrade_model(&mut model)
+            {
+                bytes = serde_json::to_vec_pretty(&model).unwrap_or(bytes);
+            }
             if let Some(file) = rel
                 .strip_prefix("recipe/")
                 .filter(|_| name.starts_with("data/"))
@@ -972,6 +1050,7 @@ pub fn carry(
         }
         write(&dest, &bytes)?;
     }
+    crate::model_loaders::flatten(&inside);
     // Entries the mod adds to other structure sets in Java code, for the
     // structures it has.
     for (file, set, entries) in crate::legacy_structure_mods::ctov::code_set_entries(id) {
@@ -1494,6 +1573,22 @@ mod tests {
             "minecraft:iron_chain"
         ]);
         assert!(!renamed_ids(&mut other));
+        let mut farmland = json!({"parent": "minecraft:block/template_farmland",
+            "textures": {"dirt": "m:block/dirt", "top": "m:block/farmland", "chain": "block/chain"}});
+        assert!(upgrade_model(&mut farmland));
+        assert_eq!(
+            farmland["parent"],
+            "minecraft:block/template_cube_bottom_top_indented"
+        );
+        assert_eq!(farmland["textures"]["side"], "m:block/dirt");
+        assert_eq!(farmland["textures"]["chain"], "minecraft:block/iron_chain");
+        assert!(!upgrade_model(
+            &mut json!({"parent": "minecraft:block/cube_all"})
+        ));
+        let mut big = json!({"elements": [{"from": [-20, 0, 0], "to": [16, 40, 16]}]});
+        assert!(upgrade_model(&mut big));
+        assert_eq!(big["elements"][0]["from"][0], -16.0);
+        assert_eq!(big["elements"][0]["to"][1], 32.0);
     }
 
     #[test]

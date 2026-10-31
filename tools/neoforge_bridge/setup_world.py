@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +60,54 @@ def install_server(server, version, java):
         urllib.request.urlretrieve(f"{MAVEN}/{version}/neoforge-{version}-installer.jar", installer)
     subprocess.run([java, "-jar", installer, "--installServer", server], cwd=server, check=True,
                    stdout=subprocess.DEVNULL)
+
+
+def mod_ids(jar):
+    """The mod ids a jar's neoforge.mods.toml declares."""
+    import tomllib
+    with zipfile.ZipFile(jar) as z:
+        for name in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
+            if name in z.namelist():
+                try:
+                    toml = tomllib.loads(z.read(name).decode("utf-8", "replace"))
+                except tomllib.TOMLDecodeError:
+                    return set()
+                return {m.get("modId", "") for m in toml.get("mods", [])} - {""}
+    return set()
+
+
+def stage(mods, out):
+    """The mod jars plus the mods they carry inside (META-INF/jarjar), each once.
+
+    Libraries shipped inside another mod (Aether's nitrogen_internals) have blocks,
+    models and textures of their own that the outer mod's models use; the oracle and
+    the carry-over treat them as the mods they are.
+    """
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    jars = sorted(mods.glob("*.jar"))
+    seen = set()
+    for jar in jars:
+        (out / jar.name).symlink_to(jar)
+        seen |= mod_ids(jar)
+    for jar in jars:
+        with zipfile.ZipFile(jar) as z:
+            for name in z.namelist():
+                if not (name.startswith("META-INF/jarjar/") and name.endswith(".jar")):
+                    continue
+                dest = out / Path(name).name
+                if dest.exists():
+                    continue
+                dest.write_bytes(z.read(name))
+                ids = mod_ids(dest)
+                # Plain libraries, and mods already here, stay out.
+                if not ids or ids & seen or not any(n.startswith("assets/") or n.startswith("data/")
+                                                    for n in zipfile.ZipFile(dest).namelist()):
+                    dest.unlink()
+                    continue
+                seen |= ids
+                print(f"{jar.name} carries {', '.join(sorted(ids))}")
+    return out
 
 
 def run(*command, env=None):
@@ -100,7 +149,8 @@ def main():
     run(sys.executable, ROOT / "tools/neoforge_bridge/build_companion.py", "--server-dir", server,
         "--out", companion)
 
-    # 2. The oracle's facts and the content mods.
+    # 2. The oracle's facts and the content mods, from the mods and those they carry.
+    mods = stage(mods, home / "neoforge" / f"{name}-jars")
     oracle_home = ROOT / ".local" / "neoforge-oracle" / version
     if not oracle_home.exists():
         oracle_home.parent.mkdir(parents=True, exist_ok=True)
