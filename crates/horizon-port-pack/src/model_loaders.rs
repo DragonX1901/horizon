@@ -23,7 +23,8 @@ pub fn flatten(inside: &Path) -> usize {
         let Ok(mut model) = serde_json::from_slice::<Value>(&text) else {
             continue;
         };
-        if model.get("loader").is_none() || !plain(inside, &mut model) {
+        let reference = reference_of(inside, &file);
+        if model.get("loader").is_none() || !plain(inside, reference.as_deref(), &mut model) {
             continue;
         }
         if let Ok(bytes) = serde_json::to_vec_pretty(&model)
@@ -49,6 +50,19 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(p);
         }
     }
+}
+
+/// The reference (`ns:path`) of the model file `file` under `inside`.
+fn reference_of(inside: &Path, file: &Path) -> Option<String> {
+    let rest = file.strip_prefix(inside.join("assets")).ok()?;
+    let mut parts = rest.iter();
+    let ns = parts.next()?.to_str()?;
+    (parts.next()? == "models").then_some(())?;
+    let tail: PathBuf = parts.collect();
+    Some(format!(
+        "{ns}:{}",
+        tail.with_extension("").to_str()?.replace('\\', "/")
+    ))
 }
 
 /// The file of model `reference` (`ns:path`, or a bare path in `minecraft`) under `inside`.
@@ -98,7 +112,7 @@ fn rename_variable(v: &Value, prefix: &str) -> Value {
     }
 }
 
-fn plain(inside: &Path, model: &mut Value) -> bool {
+fn plain(inside: &Path, model_ref: Option<&str>, model: &mut Value) -> bool {
     let Some(obj) = model.as_object_mut() else {
         return false;
     };
@@ -212,6 +226,13 @@ fn plain(inside: &Path, model: &mut Value) -> bool {
                 .filter_map(|k| obj.get(*k).and_then(Value::as_str))
                 .find(|r| file_of(inside, r).exists())
                 .map(str::to_owned);
+            // Else its parts' common base, when the mod keeps one beside it (`<model>_base`:
+            // Sophisticated Backpacks builds the rest from the backpack's upgrades in code).
+            let named = named.or_else(|| {
+                let own = model_ref?;
+                let base = format!("{own}_base");
+                file_of(inside, &base).exists().then_some(base)
+            });
             let Some(reference) = named else { return false };
             obj.remove("loader");
             obj.insert("parent".into(), json!(reference));
@@ -455,7 +476,13 @@ mod tests {
             json!({"loader": "neoforge:obj", "model": "m:models/x.obj"}),
         );
         put(&root, "m:block/code", json!({"loader": "m:built_in_code"}));
-        assert_eq!(flatten(&root), 3);
+        put(
+            &root,
+            "m:block/pack",
+            json!({"loader": "m:pack", "textures": {"clips": "m:block/c"}}),
+        );
+        put(&root, "m:block/pack_base", json!({"elements": [cube]}));
+        assert_eq!(flatten(&root), 4);
         let composite = read(&root, "m:block/composite").unwrap();
         assert_eq!(composite["elements"].as_array().unwrap().len(), 2);
         assert_eq!(
