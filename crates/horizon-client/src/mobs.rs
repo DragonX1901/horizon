@@ -369,6 +369,8 @@ pub struct MobType {
     /// Every baked layer of this entity's models keyed by `model#layer`
     /// (e.g. `sheep#wool`, `zombie_baby#main`).
     pub layers: HashMap<String, Arc<Part>>,
+    /// A mod mob's own animations (`Species::Modded`, `bedrock::load_animations`).
+    pub modded_animations: Option<Arc<bedrock::Animations>>,
     pub texture: String,
     pub brain: Brain,
     pub anim: Anim,
@@ -592,6 +594,7 @@ impl MobTypes {
                     ambient_interval: def.ambient_interval(),
                     flags,
                     model: Arc::new(Part::parse("root", model)),
+                    modded_animations: None,
                     layers,
                     texture: def.texture.to_owned(),
                     brain: def.brain(),
@@ -3348,6 +3351,7 @@ pub(crate) mod sensor_scan_tests {
             },
             model: Arc::new(Part::parse("root", &json!({}))),
             layers: HashMap::new(),
+            modded_animations: None,
             texture: String::new(),
             brain: Brain::Passive,
             anim: Anim::Rabbit,

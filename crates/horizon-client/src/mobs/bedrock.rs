@@ -6,6 +6,7 @@
 //! A bone's pivot is absolute; its part's pose is the pivot relative to the
 //! parent's, and its cubes are relative to its pivot. Cubes are built as
 //! `ModelPart.Cube` builds them: the same corners, faces and box UV layout.
+use super::keyframes::{Animation, Channel, Keyframe, Target};
 use super::{Part, Polygon};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -218,9 +219,163 @@ fn cube_polygons(cube: &Value, at: [f32; 3], tex: [f32; 2], bone_mirror: bool) -
         .collect()
 }
 
+/// A mod mob's idle and walk animations (GeckoLib's `.animation.json`).
+#[derive(Clone, Debug, Default)]
+pub struct Animations {
+    pub idle: Option<Animation>,
+    pub walk: Option<Animation>,
+}
+
+/// The animations of the mob `ns:name`: `assets/ns/animations/[entity/]name.animation.json`,
+/// the first whose name has `idle` and the first with `walk` or `move`.
+pub fn load_animations(root: &Path, id: &str) -> Option<Animations> {
+    let (ns, name) = id.split_once(':')?;
+    let assets = root.join("assets").join(ns);
+    let file = [
+        "animations",
+        "animations/entity",
+        "animations/entities",
+        "animations/mob",
+    ]
+    .iter()
+    .map(|dir| assets.join(dir).join(format!("{name}.animation.json")))
+    .find(|p| p.exists())?;
+    let doc: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+    let all = doc["animations"].as_object()?;
+    let find = |words: &[&str]| {
+        all.iter()
+            .find(|(k, _)| words.iter().any(|w| k.to_lowercase().contains(w)))
+            .map(|(_, v)| animation(v))
+    };
+    Some(Animations {
+        idle: find(&["idle"]),
+        walk: find(&["walk", "move"]),
+    })
+}
+
+/// One Bedrock animation as a keyframe animation in Java model space: rotations
+/// in radians with x and y flipped (as the bones'), positions with x and y
+/// flipped, scales as offsets from 1. Molang expressions count as 0.
+fn animation(v: &Value) -> Animation {
+    let num = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    let vec = |v: &Value| -> Option<[f32; 3]> {
+        match v {
+            Value::Array(a) => Some(std::array::from_fn(|i| {
+                num(&a[i.min(a.len().saturating_sub(1))])
+            })),
+            Value::Number(n) => Some([n.as_f64().unwrap_or(0.0) as f32; 3]),
+            Value::Object(o) => o
+                .get("vector")
+                .or_else(|| o.get("post"))
+                .and_then(|x| match x {
+                    Value::Array(a) => Some(std::array::from_fn(|i| {
+                        num(&a[i.min(a.len().saturating_sub(1))])
+                    })),
+                    _ => None,
+                }),
+            _ => None,
+        }
+    };
+    let convert = |target: Target, p: [f32; 3]| -> [f32; 3] {
+        match target {
+            Target::Rotation => [
+                (-p[0]).to_radians(),
+                (-p[1]).to_radians(),
+                p[2].to_radians(),
+            ],
+            Target::Position => [-p[0], -p[1], p[2]],
+            Target::Scale => [p[0] - 1.0, p[1] - 1.0, p[2] - 1.0],
+        }
+    };
+    let mut bones = Vec::new();
+    for (bone, channels) in v["bones"].as_object().into_iter().flatten() {
+        let mut out = Vec::new();
+        for (key, target) in [
+            ("rotation", Target::Rotation),
+            ("position", Target::Position),
+            ("scale", Target::Scale),
+        ] {
+            let c = &channels[key];
+            let mut keyframes: Vec<Keyframe> = match c {
+                Value::Object(times)
+                    if !times.contains_key("vector") && !times.contains_key("post") =>
+                {
+                    times
+                        .iter()
+                        .filter_map(|(t, val)| {
+                            let p = convert(target, vec(val)?);
+                            let catmull = val["lerp_mode"].as_str() == Some("catmullrom");
+                            Some(Keyframe {
+                                time: t.parse().ok()?,
+                                pre: p,
+                                post: p,
+                                catmull,
+                            })
+                        })
+                        .collect()
+                }
+                Value::Null => continue,
+                other => match vec(other) {
+                    Some(p) => {
+                        let p = convert(target, p);
+                        vec![Keyframe {
+                            time: 0.0,
+                            pre: p,
+                            post: p,
+                            catmull: false,
+                        }]
+                    }
+                    None => continue,
+                },
+            };
+            keyframes.sort_by(|a, b| a.time.total_cmp(&b.time));
+            if !keyframes.is_empty() {
+                out.push(Channel { target, keyframes });
+            }
+        }
+        if !out.is_empty() {
+            bones.push((bone.clone(), out));
+        }
+    }
+    Animation {
+        length: v["animation_length"]
+            .as_f64()
+            .map_or(1.0, |l| l as f32)
+            .max(0.05),
+        looping: v["loop"].as_bool().unwrap_or(false) || v["loop"].as_str() == Some("true"),
+        bones,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_idle_animation() {
+        let doc: Value = serde_json::from_str(
+            r#"{"loop":true,"animation_length":2.0,"bones":{"head":{
+                "rotation":{"0.0":[0,0,0],"1.0":[10,0,0],"2.0":[0,0,0]},
+                "position":[0,1,0]}}}"#,
+        )
+        .unwrap();
+        let a = animation(&doc);
+        assert!(a.looping);
+        assert_eq!(a.length, 2.0);
+        let (bone, channels) = &a.bones[0];
+        assert_eq!(bone, "head");
+        let rot = channels
+            .iter()
+            .find(|c| c.target == Target::Rotation)
+            .unwrap();
+        assert_eq!(rot.keyframes.len(), 3);
+        assert!((rot.keyframes[1].post[0] + 10f32.to_radians()).abs() < 1e-6);
+        let pos = channels
+            .iter()
+            .find(|c| c.target == Target::Position)
+            .unwrap();
+        assert_eq!(pos.keyframes[0].post, [0.0, -1.0, 0.0]);
+    }
 
     #[test]
     fn a_bone_with_a_cube() {

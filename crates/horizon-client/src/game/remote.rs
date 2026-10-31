@@ -1160,6 +1160,12 @@ impl Game<'_> {
                                 &e.name,
                             ) {
                                 t.model = Arc::new(model);
+                                t.modded_animations =
+                                    horizon_client::mobs::bedrock::load_animations(
+                                        &self.options.resources,
+                                        &e.name,
+                                    )
+                                    .map(Arc::new);
                                 if let Some(texture) = texture {
                                     t.texture = texture;
                                 }

@@ -912,6 +912,7 @@ mod tests {
             flags: Flags::default(),
             model: Arc::new(Part::parse("root", &serde_json::json!({}))),
             layers: HashMap::new(),
+            modded_animations: None,
             texture: String::new(),
             brain: Brain::Passive,
             anim: Anim::Villager,

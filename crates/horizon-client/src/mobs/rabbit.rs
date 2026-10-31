@@ -331,6 +331,7 @@ mod tests {
             },
             model,
             layers: HashMap::new(),
+            modded_animations: None,
             texture: String::new(),
             brain: Brain::Passive,
             anim: Anim::Rabbit,

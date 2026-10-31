@@ -203,6 +203,7 @@ fn load_player_type(root: &Path) -> Option<Arc<MobType>> {
                     Some((key.to_owned(), Arc::new(model)))
                 })
                 .collect(),
+            modded_animations: None,
             texture: "entity/player/wide/steve".into(),
             brain: Brain::Passive,
             anim: Anim::Humanoid { zombie_arms: false },

@@ -658,6 +658,18 @@ pub fn setup(
     p: &mut Poses,
     w_anims: &HashMap<String, super::keyframes::Animation>,
 ) {
+    // A mod's mob: its own idle loop, and its walk while it moves.
+    if m.species() == super::Species::Modded {
+        if let Some(a) = &m.kind.modded_animations {
+            if let Some(idle) = &a.idle {
+                idle.apply((s.age * 50.0) as i64, 1.0, p);
+            }
+            if let Some(walk) = &a.walk {
+                walk.apply_walk(s.pos, s.speed, 1.0, 2.5, p);
+            }
+        }
+        return;
+    }
     if super::body_anim::anim(m, s, p, w_anims) {
         return;
     }
