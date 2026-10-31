@@ -667,6 +667,14 @@ pub fn setup(
             if let Some(walk) = &a.walk {
                 walk.apply_walk(s.pos, s.speed, 1.0, 2.5, p);
             }
+        } else if p.has("right_front_leg") && p.has("left_hind_leg") {
+            // A model with vanilla's part names (most Java-code models) moves as
+            // vanilla's of the same build.
+            quadruped(p, s);
+        } else if p.has("right_leg") && p.has("left_arm") {
+            humanoid_pub(p, s, m);
+        } else if p.has("head") {
+            head(p, s);
         }
         return;
     }
