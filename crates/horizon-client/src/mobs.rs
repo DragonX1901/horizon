@@ -14,6 +14,7 @@ pub mod aquatic;
 pub mod armadillo;
 pub mod axolotl;
 pub mod bat;
+pub mod bedrock;
 pub mod bee;
 pub mod body_anim;
 pub mod brain;

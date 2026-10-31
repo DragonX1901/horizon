@@ -1147,13 +1147,23 @@ impl Game<'_> {
                     let base = self.res.mob_types().get("minecraft:pig").cloned();
                     if let (Some(remote), Some(base)) = (&mut self.remote, base) {
                         for e in entities {
-                            let t = horizon_client::mobs::MobType::modded(
+                            let mut t = horizon_client::mobs::MobType::modded(
                                 &base,
                                 &e.name,
                                 f64::from(e.width),
                                 f64::from(e.height),
                                 f64::from(e.eye_height),
                             );
+                            // Its own model and texture, when its mod ships them as GeckoLib does.
+                            if let Some((model, texture)) = horizon_client::mobs::bedrock::load(
+                                &self.options.resources,
+                                &e.name,
+                            ) {
+                                t.model = Arc::new(model);
+                                if let Some(texture) = texture {
+                                    t.texture = texture;
+                                }
+                            }
                             remote.modded_names.insert(e.id, e.name.clone());
                             remote.modded_types.insert(e.name, Arc::new(t));
                         }

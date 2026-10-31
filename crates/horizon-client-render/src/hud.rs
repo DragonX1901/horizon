@@ -455,18 +455,38 @@ impl HudAtlas {
         for folder in folders {
             walk(&textures.join(folder), &mut files);
         }
+        // Mods' entity textures (content mods; mobs a server's mods add),
+        // named `<namespace>:entity/...`.
+        if folders.contains(&"entity")
+            && let Ok(namespaces) = fs::read_dir(root.join("assets"))
+        {
+            for ns in namespaces.flatten() {
+                if ns.file_name() != "minecraft" {
+                    walk(&ns.path().join("textures/entity"), &mut files);
+                }
+            }
+        }
         files.retain(|p| {
             let s = p.to_string_lossy();
             !s.contains("title/background") && !s.contains("realms") && !s.contains("presets")
         });
         type Decoded = (PackedImage, Option<TextureFlags>, Option<(u32, u32)>, bool);
         let decode_one = |path: &PathBuf| -> Option<Decoded> {
-            let name = path
-                .strip_prefix(&textures)
-                .ok()?
-                .with_extension("")
-                .to_string_lossy()
-                .replace('\\', "/");
+            let name = match path.strip_prefix(&textures) {
+                Ok(rest) => rest.with_extension("").to_string_lossy().replace('\\', "/"),
+                Err(_) => {
+                    // assets/<namespace>/textures/<rest>
+                    let rest = path.strip_prefix(root.join("assets")).ok()?;
+                    let mut parts = rest.iter();
+                    let ns = parts.next()?.to_string_lossy().into_owned();
+                    parts.next().filter(|t| *t == "textures")?;
+                    let tail: PathBuf = parts.collect();
+                    format!(
+                        "{ns}:{}",
+                        tail.with_extension("").to_string_lossy().replace('\\', "/")
+                    )
+                }
+            };
             let image = decode(path).ok()?;
             let mcmeta = fs::read_to_string(path.with_extension("png.mcmeta")).ok();
             let animation = animation_of(mcmeta.as_deref());
