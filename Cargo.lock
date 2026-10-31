@@ -1123,6 +1123,7 @@ dependencies = [
  "horizon-hdr",
  "horizon-items",
  "horizon-mods",
+ "horizon-neoforge-bridge",
  "horizon-protocol",
  "horizon-server-files",
  "horizon-shader-api",
