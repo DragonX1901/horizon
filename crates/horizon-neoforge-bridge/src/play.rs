@@ -569,6 +569,54 @@ impl Play {
                 })
             }
             cb::COMMANDS => C777::Commands(self.commands(&mut r)?),
+            // 767 writes the parameters as display name, options, the name tag
+            // and collision rules by name, the colour as a ChatFormatting ordinal,
+            // prefix, suffix; 777 as display name, prefix, suffix, the two rules as
+            // enum ids, an optional colour, options.
+            cb::SET_PLAYER_TEAM => {
+                let name = r.string(32767)?;
+                let method = r.i8()?;
+                let parameters = if method == 0 || method == 2 {
+                    let display_name = r.nbt()?;
+                    let options = r.i8()?;
+                    let rule = |s: &str, names: [&str; 4]| {
+                        names.iter().position(|n| *n == s).unwrap_or(0) as i32
+                    };
+                    let name_tag_visibility = rule(
+                        &r.string(40)?,
+                        ["always", "never", "hideForOtherTeams", "hideForOwnTeam"],
+                    );
+                    let collision_rule = rule(
+                        &r.string(40)?,
+                        ["always", "never", "pushOtherTeams", "pushOwnTeam"],
+                    );
+                    let color = r.varint()?;
+                    Some(p777::TeamParameters {
+                        display_name,
+                        prefix: r.nbt()?,
+                        suffix: r.nbt()?,
+                        name_tag_visibility,
+                        collision_rule,
+                        color: (0..16).contains(&color).then_some(color),
+                        options,
+                    })
+                } else {
+                    None
+                };
+                let players = if matches!(method, 0 | 3 | 4) {
+                    (0..r.count(1 << 16)?)
+                        .map(|_| r.string(32767))
+                        .collect::<Result<_>>()?
+                } else {
+                    Vec::new()
+                };
+                C777::SetPlayerTeam(p777::SetPlayerTeam {
+                    name,
+                    method,
+                    parameters,
+                    players,
+                })
+            }
             cb::SET_TIME => {
                 let game_time = r.i64()?;
                 let day_time = r.i64()?;
@@ -680,8 +728,12 @@ impl Play {
             "minecraft:entity_effect" => Some(ParticleData::Color(r.i32()?)),
             "minecraft:sculk_charge" => Some(ParticleData::Scalar(r.f32()?)),
             "minecraft:shriek" => Some(ParticleData::Delay(r.varint()?)),
-            // Item, vibration and every mod's particle with options: not yet.
-            "minecraft:item" | "minecraft:vibration" => return Ok(None),
+            "minecraft:item" => match self.stack(r)? {
+                Some(stack) => Some(ParticleData::Item(stack)),
+                None => return Ok(None),
+            },
+            // Vibration and every mod's particle with options: not yet.
+            "minecraft:vibration" => return Ok(None),
             n if !n.starts_with("minecraft:") => return Ok(None),
             _ => None,
         };
