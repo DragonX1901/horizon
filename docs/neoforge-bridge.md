@@ -140,6 +140,8 @@ Mod mobs:
   walk animations (`mobs/bedrock.rs`).
 - Mobs whose models are Java code get them baked by `export_mod_models.py`
   (`setup_world.py --client-dir`). They move like vanilla mobs when their parts use vanilla's names.
+  Parts their renderer shows only in some state (named asleep, angry, sheared, honey, saddle,
+  item...) are left out, so they look as they do by default.
 - Anything else is drawn as its hitbox.
 
 Mod menus with no client type open as chests with the menu's slots (`Generic` in `play.rs`), and
@@ -173,7 +175,7 @@ runs while the game loads), 59 s after a game update (the content is rebuilt).
 Gaps:
 - **Java-only rendering:** Create's moving parts other than shafts (a press's head, a belt's
   surface, a gearbox's four outputs), other block entity renderers,
-  other models built in code, model parts a mod toggles in code (Naturalist's bears), and what
+  other models built in code, and what
   mods' screens draw in code (progress, buttons); menus of items (not blocks) have no layout.
 - Particles move as a poof does, whatever their mod's code does.
 

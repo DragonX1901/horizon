@@ -50,6 +50,33 @@ def classpath(client, server):
     return [mc[-1], universal[-1]] + [jar for _, jar in best.values()]
 
 
+# Words that mark a part the mod shows only in some state, switched on in its Java renderer: a
+# sleeping or angry head, a sheared body, held food, a saddle, a chest... Without that code the
+# default look is the part without them.
+CONDITIONAL = {"asleep", "sleep", "sleeping", "angry", "sheared", "saucy", "berry", "berries", "honey",
+               "saddle", "saddled", "chests", "armor", "armour", "collar", "harness", "item",
+               "items", "bell", "tamed", "baby", "dead", "open"}
+
+
+def words_of(name):
+    return {w.lower() for w in re.split(r"[_\d]+|(?<=[a-z])(?=[A-Z])", name) if w}
+
+
+def prune(part):
+    """The part without its children that only show in some state, recursively."""
+    children = part.get("children")
+    if not children:
+        return part
+    kept = {}
+    for name, child in children.items():
+        w = words_of(name)
+        if w & CONDITIONAL and not w & {"normal", "awake", "default", "idle"}:
+            continue
+        kept[name] = prune(child)
+    part["children"] = kept
+    return part
+
+
 def snake(name):
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
@@ -106,7 +133,7 @@ def main():
             base = re.sub(r"(Model|Renderer|Layer)$", "", cls.rsplit(".", 1)[-1].split("$")[-1])
             name = snake(base)
             if name in entities and (name not in models or method == "createBodyLayer"):
-                models[name] = part
+                models[name] = prune(part)
         target = args.home / "horizon-mods" / mod_id
         if not models or not target.exists():
             continue
