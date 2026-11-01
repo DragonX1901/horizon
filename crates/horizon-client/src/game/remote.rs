@@ -1197,6 +1197,27 @@ impl Game<'_> {
                                 if let Some(texture) = texture {
                                     t.texture = texture;
                                 }
+                            } else if let Some(vanilla) =
+                                horizon_client::mobs::bedrock::vanilla_alias(
+                                    &self.options.resources,
+                                    &e.name,
+                                )
+                                .and_then(|v| self.res.mob_types().get(v.as_str()))
+                                .or_else(|| self.res.mob_types().get(e.base.as_str()))
+                            {
+                                // No model of its own: drawn as the vanilla mob it extends (a
+                                // flying cow is a cow), in its own texture when it has one.
+                                let mut v = (**vanilla).clone();
+                                v.id = e.name.clone();
+                                (v.width, v.height, v.eye_height) =
+                                    (t.width, t.height, t.eye_height);
+                                if let Some(texture) = horizon_client::mobs::bedrock::texture(
+                                    &self.options.resources,
+                                    &e.name,
+                                ) {
+                                    v.texture = texture;
+                                }
+                                t = v;
                             }
                             remote.modded_names.insert(e.id, e.name.clone());
                             remote.modded_types.insert(e.name, Arc::new(t));

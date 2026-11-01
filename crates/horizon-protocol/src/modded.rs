@@ -14,6 +14,8 @@ pub struct ModdedEntity {
     pub width: f32,
     pub height: f32,
     pub eye_height: f32,
+    /// The vanilla entity type it extends (`minecraft:cow`), or empty.
+    pub base: String,
 }
 
 pub fn write(entities: &[ModdedEntity]) -> Vec<u8> {
@@ -25,6 +27,7 @@ pub fn write(entities: &[ModdedEntity]) -> Vec<u8> {
         w.f32(e.width);
         w.f32(e.height);
         w.f32(e.eye_height);
+        w.string(&e.base);
     }
     w.data
 }
@@ -39,6 +42,7 @@ pub fn read(data: &[u8]) -> Result<Vec<ModdedEntity>> {
                 width: r.f32()?,
                 height: r.f32()?,
                 eye_height: r.f32()?,
+                base: r.string(32767)?,
             })
         })
         .collect()
@@ -118,6 +122,7 @@ mod tests {
             width: 0.6,
             height: 0.9,
             eye_height: 0.8,
+            base: String::new(),
         }];
         assert_eq!(read(&write(&list)).unwrap(), list);
     }

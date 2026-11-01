@@ -25,8 +25,8 @@ pub struct ServerFacts {
     pub known_packs: Vec<(String, String, String)>,
     pub tag_registries: usize,
     pub block_states: Option<BlockStates>,
-    /// Mod entity types: (name, width, height, eye height).
-    pub entity_types: Vec<(String, f32, f32, f32)>,
+    /// Mod entity types: (name, width, height, eye height, the vanilla type it extends or "").
+    pub entity_types: Vec<(String, f32, f32, f32, String)>,
     /// Simple Voice Chat's compatibility version, when the server runs it.
     pub voicechat: Option<i32>,
 }

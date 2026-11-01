@@ -31,14 +31,60 @@ pub fn load(root: &Path, id: &str) -> Option<(Part, Option<String>)> {
                 &std::fs::read(assets.join("horizon/entity_models.json")).ok()?,
             )
             .ok()?;
-            Part::parse("root", baked.get(id)?)
+            let entry = baked.get(id)?;
+            // A mob drawn with a vanilla model: not a part tree (see `vanilla_alias`).
+            if entry.get("vanilla").is_some() {
+                return None;
+            }
+            Part::parse("root", entry)
         }
     };
-    let texture = [format!("entity/{name}"), format!("entity/{name}/{name}")]
+    Some((model, texture(root, id)))
+}
+
+/// The texture of a mod's mob `ns:name`: at GeckoLib's usual places
+/// (`assets/ns/textures/entity/[name/]name.png`), else a `name.png` anywhere under
+/// `textures/entity` (Aether's `entity/mobs/flying_cow/flying_cow.png`), as a sprite name.
+pub fn texture(root: &Path, id: &str) -> Option<String> {
+    let (ns, name) = id.split_once(':')?;
+    let textures = root.join("assets").join(ns).join("textures");
+    if let Some(t) = [format!("entity/{name}"), format!("entity/{name}/{name}")]
         .into_iter()
-        .find(|t| assets.join("textures").join(format!("{t}.png")).exists())
-        .map(|t| format!("{ns}:{t}"));
-    Some((model, texture))
+        .find(|t| textures.join(format!("{t}.png")).exists())
+    {
+        return Some(format!("{ns}:{t}"));
+    }
+    let mut stack = vec![textures.join("entity")];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_stem().is_some_and(|s| s == name)
+                && p.extension().is_some_and(|x| x == "png")
+                && let Ok(rest) = p.strip_prefix(&textures)
+            {
+                let rest = rest.with_extension("");
+                return Some(format!(
+                    "{ns}:{}",
+                    rest.to_string_lossy().replace('\\', "/")
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The vanilla mob a mod's mob is drawn as when its renderer uses a vanilla model
+/// (`{"vanilla": "minecraft:cow"}` in `entity_models.json`, export_mod_models.py).
+pub fn vanilla_alias(root: &Path, id: &str) -> Option<String> {
+    let (ns, _) = id.split_once(':')?;
+    let file = root
+        .join("assets")
+        .join(ns)
+        .join("horizon/entity_models.json");
+    let baked: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+    baked.get(id)?.get("vanilla")?.as_str().map(str::to_owned)
 }
 
 /// The first geometry of a `.geo.json` (format 1.12 and later) as a root part.

@@ -752,7 +752,7 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
             if entity_types.contains_key(&id) {
                 continue;
             }
-            if let Some((_, width, height, eye_height)) =
+            if let Some((_, width, height, eye_height, base)) =
                 state.facts.entity_types.iter().find(|t| t.0 == *name)
             {
                 entity_types.insert(id, next);
@@ -762,6 +762,7 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
                     width: *width,
                     height: *height,
                     eye_height: *eye_height,
+                    base: base.clone(),
                 });
                 next += 1;
             }

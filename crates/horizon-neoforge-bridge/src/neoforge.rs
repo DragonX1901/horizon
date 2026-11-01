@@ -348,9 +348,18 @@ impl Splitter {
 }
 
 /// The companion mod's entity types: (name, width, height, eye height).
-pub fn read_entity_types(r: &mut Reader) -> Result<Vec<(String, f32, f32, f32)>> {
+/// (name, width, height, eye height, the vanilla type it extends or "").
+pub fn read_entity_types(r: &mut Reader) -> Result<Vec<(String, f32, f32, f32, String)>> {
     (0..r.count(1 << 16)?)
-        .map(|_| Ok((r.string(32767)?, r.f32()?, r.f32()?, r.f32()?)))
+        .map(|_| {
+            Ok((
+                r.string(32767)?,
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+                r.string(32767)?,
+            ))
+        })
         .collect()
 }
 

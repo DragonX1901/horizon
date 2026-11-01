@@ -118,6 +118,14 @@ def main():
         subprocess.run(["java", "-cp", f"{classes}:{joined}", "dev.horizonlab.bridge.ModModelExporter", out,
                         *jars], check=True)
         layers = json.loads(out.read_text())
+    supers = layers.pop("__supers__", {})
+    renderers = layers.pop("__renderers__", {})
+    # Each class's own layer, createBodyLayer first.
+    by_class = {}
+    for key, part in layers.items():
+        cls, method = key.split("#")
+        if cls not in by_class or method == "createBodyLayer":
+            by_class[cls] = part
     total = 0
     for jar in jars:
         mod_id, entities = entities_of(jar)
@@ -134,6 +142,28 @@ def main():
             name = snake(base)
             if name in entities and (name not in models or method == "createBodyLayer"):
                 models[name] = prune(part)
+        # Models that take their parent class's layer (CockatriceModel extends BipedBirdModel).
+        for cls, parent in supers.items():
+            if cls not in classes_in or "baby" in cls.lower():
+                continue
+            name = snake(re.sub(r"(Model|Renderer|Layer)$", "", cls.rsplit(".", 1)[-1].split("$")[-1]))
+            if name not in entities or name in models:
+                continue
+            seen = set()
+            while parent and parent not in by_class and parent not in seen:
+                seen.add(parent)
+                parent = supers.get(parent)
+            if parent in by_class:
+                models[name] = prune(json.loads(json.dumps(by_class[parent])))
+        # Mobs drawn with a vanilla model (FlyingCowRenderer and CowModel): the game draws them
+        # as that vanilla mob, in their own texture.
+        for cls, model in renderers.items():
+            if cls not in classes_in or not model.startswith("net.minecraft.client.model."):
+                continue
+            name = snake(re.sub(r"Renderer$", "", cls.rsplit(".", 1)[-1].split("$")[-1]))
+            vanilla = snake(re.sub(r"Model$", "", model.rsplit(".", 1)[-1]))
+            if name in entities and name not in models and vanilla:
+                models[name] = {"vanilla": f"minecraft:{vanilla}"}
         target = args.home / "horizon-mods" / mod_id
         if not models or not target.exists():
             continue

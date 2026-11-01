@@ -140,6 +140,10 @@ Mod mobs:
   walk animations (`mobs/bedrock.rs`).
 - Mobs whose models are Java code get them baked by `export_mod_models.py`
   (`setup_world.py --client-dir`). They move like vanilla mobs when their parts use vanilla's names.
+  Layer methods that take a cube deformation are baked with none; a model whose layer its parent
+  class defines takes that one. A mob whose renderer draws a vanilla model (Aether's flying cow
+  and `CowModel`), or whose class extends a vanilla mob (the companion mod reports it), is drawn as
+  that vanilla mob in its own texture.
   Parts their renderer shows only in some state (named asleep, angry, sheared, honey, saddle,
   item...) are left out, so they look as they do by default.
 - Anything else is drawn as its hitbox.

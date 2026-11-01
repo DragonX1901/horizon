@@ -36,6 +36,49 @@ public record EntityTypesPayload() implements CustomPacketPayload {
             buf.writeFloat(size.width());
             buf.writeFloat(size.height());
             buf.writeFloat(size.eyeHeight());
+            buf.writeUtf(vanillaBase(type));
         }
+    }
+
+    /** Vanilla's entity types by the class of their entities, made once. */
+    private static java.util.Map<Class<?>, String> vanilla;
+
+    /**
+     * The vanilla entity type this mod's entity's class extends (a flying cow is a cow), or "":
+     * the game draws a mob with no model of its own as that one.
+     */
+    private static String vanillaBase(EntityType<?> type) {
+        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return "";
+        var level = server.overworld();
+        if (vanilla == null) {
+            vanilla = new java.util.HashMap<>();
+            for (EntityType<?> v : BuiltInRegistries.ENTITY_TYPE) {
+                var key = BuiltInRegistries.ENTITY_TYPE.getKey(v);
+                if (!key.getNamespace().equals(ResourceLocation.DEFAULT_NAMESPACE)) continue;
+                try {
+                    var e = v.create(level);
+                    if (e != null) {
+                        vanilla.putIfAbsent(e.getClass(), key.toString());
+                        e.discard();
+                    }
+                } catch (Throwable error) {
+                    // Not made without a world around it.
+                }
+            }
+        }
+        try {
+            var e = type.create(level);
+            if (e == null) return "";
+            Class<?> c = e.getClass().getSuperclass();
+            e.discard();
+            for (; c != null; c = c.getSuperclass()) {
+                String v = vanilla.get(c);
+                if (v != null) return v;
+            }
+        } catch (Throwable error) {
+            // Not made without a world around it.
+        }
+        return "";
     }
 }
