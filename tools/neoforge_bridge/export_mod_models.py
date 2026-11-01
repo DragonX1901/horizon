@@ -77,6 +77,15 @@ def prune(part):
     return part
 
 
+def model_name(cls):
+    """The entity a model or renderer class names: FlyingCowRenderer, CowModel, ModelFrostmaw and
+    RenderFrostmaw all by their mob's name."""
+    simple = cls.rsplit(".", 1)[-1].split("$")[-1]
+    simple = re.sub(r"(Model|Renderer|Layer)$", "", simple)
+    simple = re.sub(r"^(Model|Renderer|Render)(?=[A-Z])", "", simple)
+    return snake(simple)
+
+
 def snake(name):
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
@@ -138,15 +147,14 @@ def main():
             cls, method = key.split("#")
             if cls not in classes_in or "baby" in cls.lower():
                 continue
-            base = re.sub(r"(Model|Renderer|Layer)$", "", cls.rsplit(".", 1)[-1].split("$")[-1])
-            name = snake(base)
+            name = model_name(cls)
             if name in entities and (name not in models or method == "createBodyLayer"):
                 models[name] = prune(part)
         # Models that take their parent class's layer (CockatriceModel extends BipedBirdModel).
         for cls, parent in supers.items():
             if cls not in classes_in or "baby" in cls.lower():
                 continue
-            name = snake(re.sub(r"(Model|Renderer|Layer)$", "", cls.rsplit(".", 1)[-1].split("$")[-1]))
+            name = model_name(cls)
             if name not in entities or name in models:
                 continue
             seen = set()
@@ -160,7 +168,7 @@ def main():
         for cls, model in renderers.items():
             if cls not in classes_in:
                 continue
-            name = snake(re.sub(r"Renderer$", "", cls.rsplit(".", 1)[-1].split("$")[-1]))
+            name = model_name(cls)
             if name not in entities or name in models:
                 continue
             # A mod model class with a baked layer (ValkyrieQueenRenderer draws ValkyrieModel),

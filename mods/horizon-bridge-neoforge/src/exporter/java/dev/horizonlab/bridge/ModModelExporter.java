@@ -68,6 +68,118 @@ public final class ModModelExporter {
         return o;
     }
 
+    /** A field by name on `c` or a superclass, readable; null when none. */
+    private static Field anyField(Class<?> c, String name) {
+        for (; c != null; c = c.getSuperclass()) {
+            try {
+                Field f = c.getDeclaredField(name);
+                f.setAccessible(true);
+                return f;
+            } catch (NoSuchFieldException e) {
+                // Up a class.
+            }
+        }
+        return null;
+    }
+
+    private static Object get(Object o, String name) throws Exception {
+        Field f = anyField(o.getClass(), name);
+        return f == null ? null : f.get(o);
+    }
+
+    private static float num(Object o, String name, float fallback) throws Exception {
+        Object v = get(o, name);
+        return v instanceof Number n ? n.floatValue() : fallback;
+    }
+
+    /** Whether `o` is a part of an older, constructor-built model (LLibrary's renderers). */
+    private static boolean legacyPart(Object o) {
+        return o != null && anyField(o.getClass(), "cubeList") != null && anyField(o.getClass(), "childModels") != null
+                && anyField(o.getClass(), "rotationPointX") != null;
+    }
+
+    /** One constructor-built part, in the format of {@link #part}. */
+    @SuppressWarnings("unchecked")
+    private static JsonObject legacy(Object part, Map<Object, String> names) throws Exception {
+        var o = new JsonObject();
+        var pose = new JsonArray();
+        for (float f : new float[] {num(part, "rotationPointX", 0), num(part, "rotationPointY", 0),
+                num(part, "rotationPointZ", 0), num(part, "rotateAngleX", 0), num(part, "rotateAngleY", 0),
+                num(part, "rotateAngleZ", 0), num(part, "scaleX", 1), num(part, "scaleY", 1), num(part, "scaleZ", 1)})
+            pose.add(Float.isFinite(f) ? f : 0.0F);
+        o.add("pose", pose);
+        var polys = new JsonArray();
+        var normals = new JsonArray();
+        for (Object box : (Iterable<Object>) get(part, "cubeList")) {
+            Object quads = get(box, "quads");
+            if (quads == null) quads = get(box, "polygons");
+            if (!(quads instanceof Object[] array)) continue;
+            for (Object quad : array) {
+                Object vertices = get(quad, "vertexPositions");
+                if (!(vertices instanceof Object[] vs)) continue;
+                var p = new JsonArray();
+                for (Object vertex : vs) {
+                    var at = (org.joml.Vector3f) get(vertex, "position");
+                    var vx = new JsonArray();
+                    for (float f : new float[] {at.x(), at.y(), at.z(), num(vertex, "textureU", 0), num(vertex, "textureV", 0)})
+                        vx.add(Float.isFinite(f) ? f : 0.0F);
+                    p.add(vx);
+                }
+                polys.add(p);
+                var n = get(quad, "normal") instanceof org.joml.Vector3f v ? v : new org.joml.Vector3f(0, 1, 0);
+                var nj = new JsonArray();
+                nj.add(n.x());
+                nj.add(n.y());
+                nj.add(n.z());
+                normals.add(nj);
+            }
+        }
+        o.add("polygons", polys);
+        o.add("normals", normals);
+        var kids = new JsonObject();
+        int i = 0;
+        for (Object child : (Iterable<Object>) get(part, "childModels")) {
+            kids.add(names.getOrDefault(child, "part" + i++), legacy(child, names));
+        }
+        o.add("children", kids);
+        return o;
+    }
+
+    /**
+     * A model built in its constructor (no layer definition): made with its no-argument
+     * constructor, its parts found among its fields, the parts no other part holds as its roots.
+     */
+    @SuppressWarnings("unchecked")
+    private static JsonObject legacyModel(Class<?> c) throws Exception {
+        var made = c.getConstructor().newInstance();
+        Map<Object, String> names = new java.util.IdentityHashMap<>();
+        for (Class<?> k = c; k != null && k != Object.class; k = k.getSuperclass()) {
+            for (Field f : k.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers())) continue;
+                f.setAccessible(true);
+                Object v = f.get(made);
+                if (legacyPart(v)) names.putIfAbsent(v, f.getName());
+            }
+        }
+        if (names.isEmpty()) return null;
+        java.util.Set<Object> held = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Object p : names.keySet()) {
+            for (Object child : (Iterable<Object>) get(p, "childModels")) held.add(child);
+        }
+        var root = new JsonObject();
+        var pose = new JsonArray();
+        for (float f : new float[] {0, 0, 0, 0, 0, 0, 1, 1, 1}) pose.add(f);
+        root.add("pose", pose);
+        root.add("polygons", new JsonArray());
+        root.add("normals", new JsonArray());
+        var kids = new JsonObject();
+        for (var e : names.entrySet()) {
+            if (!held.contains(e.getKey())) kids.add(e.getValue(), legacy(e.getKey(), names));
+        }
+        root.add("children", kids);
+        return root;
+    }
+
     private static Field field(Class<?> c, String name) throws Exception {
         Field f = c.getDeclaredField(name);
         f.setAccessible(true);
@@ -137,6 +249,18 @@ public final class ModModelExporter {
                         }
                     } catch (Throwable error) {
                         // Left out.
+                    }
+                    // Constructor-built models (LLibrary's, Mowzie's mobs).
+                    try {
+                        if (net.minecraft.client.model.Model.class.isAssignableFrom(c)
+                                && !Modifier.isAbstract(c.getModifiers())
+                                && java.util.Arrays.stream(methods).noneMatch(m -> m.getReturnType() == LayerDefinition.class)) {
+                            c.getConstructor();
+                            var legacy = legacyModel(c);
+                            if (legacy != null) out.add(c.getName() + "#<init>", legacy);
+                        }
+                    } catch (Throwable error) {
+                        // Not made without its arguments, or not built that way.
                     }
                     for (Method m : methods) {
                         if (!Modifier.isStatic(m.getModifiers()) || m.getReturnType() != LayerDefinition.class) continue;
