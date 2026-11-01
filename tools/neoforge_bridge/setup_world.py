@@ -225,7 +225,7 @@ def main():
     client_jar = args.client_dir and args.client_dir / "versions/1.21.1/1.21.1.jar"
     if client_jar and client_jar.exists():
         run(sys.executable, ROOT / "tools/neoforge_bridge/mod_entity_blocks.py", "--client-jar", client_jar,
-            "--resources", args.resources, "--mods-dir", home / "horizon-mods")
+            "--resources", args.resources, "--mods-dir", home / "horizon-mods", "--jars", mods)
     if args.client_dir:
         run(sys.executable, ROOT / "tools/neoforge_bridge/export_mod_models.py", "--client-dir", args.client_dir,
             "--server-dir", server, "--mods", mods, "--home", home)

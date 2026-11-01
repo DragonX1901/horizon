@@ -103,7 +103,19 @@ def find_texture(textures, hanging, wood):
     return None
 
 
-def signs(mod, ns, client_jar, resources, maps):
+def in_jars(jars, hanging, wood):
+    """A wood type registered without a namespace keeps its sign textures in vanilla's
+    (Cobblemon's `assets/minecraft/textures/entity/signs/apricorn.png`), which the carry-over
+    leaves out: read them from the mod jars."""
+    name = f"assets/minecraft/textures/entity/signs/{'hanging/' if hanging else ''}{wood}.png"
+    for jar in jars:
+        with zipfile.ZipFile(jar) as z:
+            if name in z.namelist():
+                return io.BytesIO(z.read(name))
+    return None
+
+
+def signs(mod, ns, client_jar, resources, maps, jars=()):
     root = mod / "assets" / ns
     states = root / "blockstates"
     count = 0
@@ -114,7 +126,7 @@ def signs(mod, ns, client_jar, resources, maps):
             continue
         hanging = "hanging" in suffix
         mapping, sizes = maps[hanging]
-        source = find_texture(root / "textures", hanging, wood)
+        source = find_texture(root / "textures", hanging, wood) or in_jars(jars, hanging, wood)
         vanilla_state = resources / f"assets/minecraft/blockstates/oak{suffix}.json"
         if mapping is None or source is None or not vanilla_state.exists():
             continue
@@ -231,6 +243,7 @@ def main():
     parser.add_argument("--client-jar", type=Path, required=True, help="Minecraft 1.21.1's client jar")
     parser.add_argument("--resources", type=Path, required=True, help="Horizon's prepared resources")
     parser.add_argument("--mods-dir", type=Path, required=True, help="GAME_HOME/horizon-mods")
+    parser.add_argument("--jars", type=Path, help="the mod jars, for textures kept in vanilla's namespace")
     args = parser.parse_args()
     maps = {h: learn(args.client_jar, args.resources, h) for h in (False, True)}
     for h, (m, _) in maps.items():
@@ -238,7 +251,8 @@ def main():
     for mod in sorted(p for p in args.mods_dir.iterdir() if (p / "assets").is_dir()):
         for ns_dir in sorted((mod / "assets").iterdir()):
             ns = ns_dir.name
-            s, c, b = signs(mod, ns, args.client_jar, args.resources, maps), chests(mod, ns), belts(mod, ns)
+            jars = sorted(args.jars.glob("*.jar")) if args.jars else []
+            s, c, b = signs(mod, ns, args.client_jar, args.resources, maps, jars), chests(mod, ns), belts(mod, ns)
             if s or c or b:
                 print(f"{mod.name}: {s} signs, {c} chests, {b} belts")
 

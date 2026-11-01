@@ -24,7 +24,19 @@ pub fn flatten(inside: &Path) -> usize {
             continue;
         };
         let reference = reference_of(inside, &file);
-        if model.get("loader").is_none() || !plain(inside, reference.as_deref(), &mut model) {
+        if model.get("loader").is_none() {
+            // A block model with nothing but a particle: its block entity draws it in code.
+            // Its item model's shape stands in, when it has one.
+            let empty = model.get("elements").is_none() && model.get("parent").is_none();
+            let Some(item) = reference
+                .as_deref()
+                .filter(|r| empty && r.contains(":block/"))
+                .and_then(|r| item_shape(inside, r))
+            else {
+                continue;
+            };
+            model["parent"] = json!(item);
+        } else if !plain(inside, reference.as_deref(), &mut model) {
             continue;
         }
         if let Ok(bytes) = serde_json::to_vec_pretty(&model)
@@ -50,6 +62,30 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(p);
         }
     }
+}
+
+/// For block model `own`, its item model, when that has a shape of its own: not the flat
+/// `item/generated` kind, not code-drawn (`builtin/entity`), not this model again.
+fn item_shape(inside: &Path, own: &str) -> Option<String> {
+    let item = own.replacen(":block/", ":item/", 1);
+    let model = read(inside, &item)?;
+    if model.get("loader").is_some() {
+        return None;
+    }
+    let parent = model
+        .get("parent")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let flat = [
+        "item/generated",
+        "item/handheld",
+        "builtin/entity",
+        "builtin/generated",
+    ]
+    .iter()
+    .any(|f| parent.ends_with(f));
+    let shaped = model.get("elements").is_some() || (!parent.is_empty() && !flat && parent != own);
+    (item != own && shaped).then_some(item)
 }
 
 /// The reference (`ns:path`) of the model file `file` under `inside`.
@@ -233,6 +269,9 @@ fn plain(inside: &Path, model_ref: Option<&str>, model: &mut Value) -> bool {
                 let base = format!("{own}_base");
                 file_of(inside, &base).exists().then_some(base)
             });
+            // Else the block's item model, when it has a shape of its own (an item model
+            // that isn't the flat `item/generated` kind or this model again).
+            let named = named.or_else(|| item_shape(inside, model_ref?));
             let Some(reference) = named else { return false };
             obj.remove("loader");
             obj.insert("parent".into(), json!(reference));
@@ -476,13 +515,15 @@ mod tests {
             json!({"loader": "neoforge:obj", "model": "m:models/x.obj"}),
         );
         put(&root, "m:block/code", json!({"loader": "m:built_in_code"}));
+        put(&root, "m:block/board", json!({"loader": "m:board"}));
+        put(&root, "m:item/board", json!({"elements": [cube]}));
         put(
             &root,
             "m:block/pack",
             json!({"loader": "m:pack", "textures": {"clips": "m:block/c"}}),
         );
         put(&root, "m:block/pack_base", json!({"elements": [cube]}));
-        assert_eq!(flatten(&root), 4);
+        assert_eq!(flatten(&root), 5);
         let composite = read(&root, "m:block/composite").unwrap();
         assert_eq!(composite["elements"].as_array().unwrap().len(), 2);
         assert_eq!(
