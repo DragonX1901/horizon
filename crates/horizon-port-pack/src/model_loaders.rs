@@ -68,24 +68,39 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 /// `item/generated` kind, not code-drawn (`builtin/entity`), not this model again.
 fn item_shape(inside: &Path, own: &str) -> Option<String> {
     let item = own.replacen(":block/", ":item/", 1);
-    let model = read(inside, &item)?;
-    if model.get("loader").is_some() {
+    if item == own {
         return None;
     }
-    let parent = model
-        .get("parent")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let flat = [
-        "item/generated",
-        "item/handheld",
-        "builtin/entity",
-        "builtin/generated",
-    ]
-    .iter()
-    .any(|f| parent.ends_with(f));
-    let shaped = model.get("elements").is_some() || (!parent.is_empty() && !flat && parent != own);
-    (item != own && shaped).then_some(item)
+    // Follow its parents within the mod: any flat or code-drawn one disqualifies it.
+    let flat = |p: &str| {
+        [
+            "item/generated",
+            "item/handheld",
+            "builtin/entity",
+            "builtin/generated",
+        ]
+        .iter()
+        .any(|f| p.ends_with(f))
+    };
+    let mut model = read(inside, &item)?;
+    for _ in 0..16 {
+        if model.get("loader").is_some() {
+            return None;
+        }
+        if model.get("elements").is_some() {
+            return Some(item);
+        }
+        let parent = model.get("parent").and_then(Value::as_str)?.to_owned();
+        if flat(&parent) || parent == own {
+            return None;
+        }
+        match read(inside, &parent) {
+            Some(next) => model = next,
+            // A vanilla parent (block/cube_all...): a shape.
+            None => return Some(item),
+        }
+    }
+    None
 }
 
 /// The reference (`ns:path`) of the model file `file` under `inside`.
