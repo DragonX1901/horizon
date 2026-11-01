@@ -41,6 +41,33 @@ impl Layout {
                 _ => layout.own.push((x, y)),
             }
         }
+        // Slots its mod places in client code all sit at one spot: lay them out as a chest
+        // does, the menu's rows of nine above the player's inventory.
+        let mut spots: Vec<_> = layout
+            .own
+            .iter()
+            .chain(layout.player.values())
+            .copied()
+            .collect();
+        spots.dedup();
+        if spots.len() <= 1 {
+            layout.texture = None;
+            let rows = layout.own.len().div_ceil(9) as f32;
+            for (i, slot) in layout.own.iter_mut().enumerate() {
+                *slot = (8.0 + (i % 9) as f32 * 18.0, 18.0 + (i / 9) as f32 * 18.0);
+            }
+            let top = 18.0 + rows * 18.0 + 13.0;
+            for (&i, slot) in layout.player.iter_mut() {
+                *slot = match i {
+                    0..9 => (8.0 + i as f32 * 18.0, top + 58.0),
+                    _ => (
+                        8.0 + ((i - 9) % 9) as f32 * 18.0,
+                        top + ((i - 9) / 9) as f32 * 18.0,
+                    ),
+                };
+            }
+            bottom = top + 58.0;
+        }
         // A menu's last row is the hotbar, 24 pixels above the bottom edge in vanilla's.
         layout.height = bottom + 24.0;
         Some(layout)

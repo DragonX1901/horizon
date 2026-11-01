@@ -109,6 +109,8 @@ pub struct Context {
     pub menus: HashMap<i32, i32>,
     /// Every menu type's name, by the server's id.
     pub menu_names: HashMap<i32, String>,
+    /// Mod menus with a known layout: their own slot count, by name.
+    pub menu_slots: HashMap<String, usize>,
     /// Sound events: server id → the client's id, or the name to send inline.
     pub sounds: HashMap<i32, std::result::Result<i32, String>>,
     /// Blocks (the registry, not states): server id → client id.
@@ -463,30 +465,14 @@ impl Play {
                 let mut out = Vec::new();
                 // A mod's menu the client lacks opens as a chest of enough rows.
                 if let Some((title, server_menu)) = self.pending_screens.remove(&container) {
+                    let name = self
+                        .ctx
+                        .menu_names
+                        .get(&server_menu)
+                        .cloned()
+                        .unwrap_or_default();
                     let mod_slots = items.len().saturating_sub(36);
-                    let rows = mod_slots.div_ceil(9).clamp(1, 6);
-                    if let Some(menu) = self.ctx.generic_menus[rows - 1] {
-                        self.generic.insert(container, Generic { mod_slots, rows });
-                        if let Some(name) = self.ctx.menu_names.get(&server_menu) {
-                            let mut w = Writer::new();
-                            w.varint(horizon_protocol::ids::play::clientbound::CUSTOM_PAYLOAD);
-                            w.string(horizon_protocol::modded::MOD_MENU);
-                            w.bytes(&horizon_protocol::modded::write_mod_menu(
-                                container,
-                                name,
-                                mod_slots as i32,
-                            ));
-                            out.push(w.data);
-                        }
-                        out.push(
-                            C777::OpenScreen(p777::OpenScreen {
-                                container,
-                                menu,
-                                title,
-                            })
-                            .encode(),
-                        );
-                    }
+                    out.extend(self.open_generic(container, title, &name, mod_slots));
                 }
                 if let Some(g) = self.generic.get(&container) {
                     items = g.to_client(items);
@@ -989,10 +975,61 @@ impl Play {
                 .encode(),
             ],
             None => {
-                self.pending_screens.insert(container, (title, menu));
-                Vec::new()
+                // A mod menu whose layout is known opens now: some mods sync its slots with a
+                // payload of their own, not the vanilla content packet the chest waits for.
+                let known = self
+                    .ctx
+                    .menu_names
+                    .get(&menu)
+                    .and_then(|name| Some((name.clone(), *self.ctx.menu_slots.get(name)?)));
+                match known {
+                    Some((name, mod_slots)) => {
+                        self.open_generic(container, title, &name, mod_slots)
+                    }
+                    None => {
+                        self.pending_screens.insert(container, (title, menu));
+                        Vec::new()
+                    }
+                }
             }
         }
+    }
+
+    /// A mod menu the client lacks, as a chest of enough rows for its `mod_slots`, named for the
+    /// game (`horizon:mod_menu`) so it can lay it out as the mod does.
+    fn open_generic(
+        &mut self,
+        container: i32,
+        title: horizon_world::nbt::Tag,
+        name: &str,
+        mod_slots: usize,
+    ) -> Vec<Vec<u8>> {
+        let rows = mod_slots.div_ceil(9).clamp(1, 6);
+        let Some(menu) = self.ctx.generic_menus[rows - 1] else {
+            return Vec::new();
+        };
+        self.generic.insert(container, Generic { mod_slots, rows });
+        let mut out = Vec::new();
+        if !name.is_empty() {
+            let mut w = Writer::new();
+            w.varint(horizon_protocol::ids::play::clientbound::CUSTOM_PAYLOAD);
+            w.string(horizon_protocol::modded::MOD_MENU);
+            w.bytes(&horizon_protocol::modded::write_mod_menu(
+                container,
+                name,
+                mod_slots as i32,
+            ));
+            out.push(w.data);
+        }
+        out.push(
+            C777::OpenScreen(p777::OpenScreen {
+                container,
+                menu,
+                title,
+            })
+            .encode(),
+        );
+        out
     }
 
     /// A sound holder: by the client's id, or inline by name for a sound the

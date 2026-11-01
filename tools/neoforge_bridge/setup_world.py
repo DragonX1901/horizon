@@ -130,7 +130,7 @@ def write_menus(facts, mods_dir):
         gui = owner / "assets" / ns / "textures" / "gui"
         textures = [p for p in gui.rglob("*.png")] if gui.is_dir() else []
         for menu, layout in layouts.items():
-            want = words(menu.split(":")[1]) | words(layout.get("block", "").split(":")[-1])
+            want = words(menu.split(":")[1]) | words((layout.get("block") or layout.get("item") or "").split(":")[-1])
             best = max(textures, key=lambda p: len(want & words(p.stem)), default=None)
             if best is not None and want & words(best.stem):
                 rel = best.relative_to(owner / "assets" / ns / "textures").with_suffix("")

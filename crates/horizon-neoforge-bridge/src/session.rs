@@ -784,6 +784,7 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
         entity_types,
         modded_entities,
         menus: remap("minecraft:menu"),
+        menu_slots: menu_slots(resources),
         menu_names: state
             .facts
             .frozen
@@ -858,4 +859,29 @@ fn play_loop(
             client.send(&p)?;
         }
     }
+}
+
+/// The mod menus whose layout the content mods carry (`assets/<ns>/horizon/menus.json`, from the
+/// oracle): how many slots of their own each has.
+fn menu_slots(resources: &std::path::Path) -> std::collections::HashMap<String, usize> {
+    let mut out = std::collections::HashMap::new();
+    for ns in std::fs::read_dir(resources.join("assets"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Ok(bytes) = std::fs::read(ns.path().join("horizon/menus.json")) else {
+            continue;
+        };
+        let Ok(serde_json::Value::Object(menus)) = serde_json::from_slice(&bytes) else {
+            continue;
+        };
+        for (menu, layout) in menus {
+            let own = layout["slots"].as_array().map_or(0, |s| {
+                s.iter().filter(|s| s[2].as_i64() == Some(-1)).count()
+            });
+            out.insert(menu, own);
+        }
+    }
+    out
 }

@@ -90,6 +90,33 @@ public final class FactsExporter {
         server.halt(false);
     }
 
+    /**
+     * A fake player that opens the menus asked of it: NeoForge's FakePlayer refuses
+     * openMenu, which items' menus (backpacks, sacks) go through.
+     */
+    private static final class OraclePlayer extends net.neoforged.neoforge.common.util.FakePlayer {
+        OraclePlayer(ServerLevel level) {
+            super(level, new com.mojang.authlib.GameProfile(
+                    java.util.UUID.fromString("41c82c87-7afb-4024-ba57-13d2c99cae78"), "[HorizonOracle]"));
+        }
+
+        @Override
+        public java.util.OptionalInt openMenu(
+                net.minecraft.world.MenuProvider provider,
+                java.util.function.Consumer<net.minecraft.network.RegistryFriendlyByteBuf> data) {
+            if (provider == null) return java.util.OptionalInt.empty();
+            var menu = provider.createMenu(1, getInventory(), this);
+            if (menu == null) return java.util.OptionalInt.empty();
+            containerMenu = menu;
+            return java.util.OptionalInt.of(1);
+        }
+
+        @Override
+        public java.util.OptionalInt openMenu(net.minecraft.world.MenuProvider provider) {
+            return openMenu(provider, data -> {});
+        }
+    }
+
     private static final class Export {
         final MinecraftServer server;
         final ServerLevel level;
@@ -472,7 +499,7 @@ public final class FactsExporter {
             json.beginObject();
             Set<String> done = new TreeSet<>();
             BlockPos at = FLOOR.above(2);
-            var player = net.neoforged.neoforge.common.util.FakePlayerFactory.getMinecraft(level);
+            var player = new OraclePlayer(level);
             for (Block block : BuiltInRegistries.BLOCK) {
                 ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
                 if (!ours(id) || !(block instanceof net.minecraft.world.level.block.EntityBlock)) continue;
@@ -493,22 +520,7 @@ public final class FactsExporter {
                         continue;
                     }
                     if (!done.add(type)) continue;
-                    StringWriter buffer = new StringWriter();
-                    JsonWriter one = new JsonWriter(buffer);
-                    one.beginObject();
-                    one.name("block").value(id.toString());
-                    one.name("slots");
-                    one.beginArray();
-                    for (var slot : menu.slots) {
-                        one.beginArray();
-                        one.value(slot.x).value(slot.y);
-                        one.value(slot.container == player.getInventory() ? slot.getContainerSlot() : -1);
-                        one.endArray();
-                    }
-                    one.endArray();
-                    one.endObject();
-                    one.flush();
-                    json.name(type).jsonValue(buffer.toString());
+                    json.name(type).jsonValue(layout("block", id.toString(), menu, player));
                 } catch (RuntimeException | LinkageError e) {
                     System.out.println("horizon-oracle: no menu for " + id + ": " + e);
                 } finally {
@@ -519,7 +531,56 @@ public final class FactsExporter {
                     }
                 }
             }
+            // Menus items open when used (backpacks, sacks): the menu the fake player has then.
+            for (Item item : BuiltInRegistries.ITEM) {
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+                if (!ours(id)) continue;
+                try {
+                    player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(item));
+                    item.use(level, player, InteractionHand.MAIN_HAND);
+                    var menu = player.containerMenu;
+                    if (menu == null || menu == player.inventoryMenu) continue;
+                    String type;
+                    try {
+                        type = BuiltInRegistries.MENU.getKey(menu.getType()).toString();
+                    } catch (UnsupportedOperationException e) {
+                        continue;
+                    }
+                    if (done.add(type)) json.name(type).jsonValue(layout("item", id.toString(), menu, player));
+                } catch (RuntimeException | LinkageError e) {
+                    System.out.println("horizon-oracle: no menu for " + id + ": " + e);
+                } finally {
+                    try {
+                        player.closeContainer();
+                        player.containerMenu = player.inventoryMenu;
+                        player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                    } catch (RuntimeException e) {
+                        // Left as it is.
+                    }
+                }
+            }
             json.endObject();
+        }
+
+        /** A menu's slots: x, y, and the player's inventory index (-1 for the menu's own). */
+        String layout(String kind, String opener, net.minecraft.world.inventory.AbstractContainerMenu menu,
+                net.minecraft.world.entity.player.Player player) throws IOException {
+            StringWriter buffer = new StringWriter();
+            JsonWriter one = new JsonWriter(buffer);
+            one.beginObject();
+            one.name(kind).value(opener);
+            one.name("slots");
+            one.beginArray();
+            for (var slot : menu.slots) {
+                one.beginArray();
+                one.value(slot.x).value(slot.y);
+                one.value(slot.container == player.getInventory() ? slot.getContainerSlot() : -1);
+                one.endArray();
+            }
+            one.endArray();
+            one.endObject();
+            one.flush();
+            return buffer.toString();
         }
 
         void recipes() throws IOException {
