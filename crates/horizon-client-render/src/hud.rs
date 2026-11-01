@@ -463,6 +463,15 @@ impl HudAtlas {
             for ns in namespaces.flatten() {
                 if ns.file_name() != "minecraft" {
                     walk(&ns.path().join("textures/entity"), &mut files);
+                    // Entity folders deeper in (Quark's textures/model/entity).
+                    if let Ok(top) = fs::read_dir(ns.path().join("textures")) {
+                        for dir in top.flatten().map(|d| d.path()) {
+                            let nested = dir.join("entity");
+                            if dir.file_name().is_some_and(|n| n != "entity") && nested.is_dir() {
+                                walk(&nested, &mut files);
+                            }
+                        }
+                    }
                     // Mods' particles (`<namespace>:particle/...`, particles.rs modded_set).
                     walk(&ns.path().join("textures/particle"), &mut files);
                     // Mods' menu backgrounds (`<namespace>:gui/...`, game/mod_menus.rs).

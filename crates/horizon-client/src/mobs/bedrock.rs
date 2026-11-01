@@ -54,22 +54,61 @@ pub fn texture(root: &Path, id: &str) -> Option<String> {
     {
         return Some(format!("{ns}:{t}"));
     }
-    let mut stack = vec![textures.join("entity")];
-    while let Some(dir) = stack.pop() {
-        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.file_stem().is_some_and(|s| s == name)
-                && p.extension().is_some_and(|x| x == "png")
-                && let Ok(rest) = p.strip_prefix(&textures)
-            {
-                let rest = rest.with_extension("");
-                return Some(format!(
-                    "{ns}:{}",
-                    rest.to_string_lossy().replace('\\', "/")
-                ));
+    let sprite = |p: &Path| -> Option<String> {
+        let rest = p.strip_prefix(&textures).ok()?.with_extension("");
+        Some(format!(
+            "{ns}:{}",
+            rest.to_string_lossy().replace('\\', "/")
+        ))
+    };
+    // Entity folders: textures/entity, and one level in (Quark's textures/model/entity).
+    let mut roots = vec![textures.join("entity")];
+    for d in std::fs::read_dir(&textures).into_iter().flatten().flatten() {
+        let nested = d.path().join("entity");
+        if d.file_name() != "entity" && nested.is_dir() {
+            roots.push(nested);
+        }
+    }
+    let pngs = |dir: &Path| {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_owned()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().is_some_and(|x| x == "png") {
+                    out.push(p);
+                }
             }
+        }
+        out.sort();
+        out
+    };
+    // `name.png` anywhere in them (Aether's entity/mobs/flying_cow/flying_cow.png).
+    for root in &roots {
+        if let Some(p) = pngs(root)
+            .into_iter()
+            .find(|p| p.file_stem().is_some_and(|s| s == name))
+        {
+            return sprite(&p);
+        }
+    }
+    // Else the first plain texture in a folder named after it (variants: Quark's
+    // foxhound/red/...), not an overlay.
+    const OVERLAYS: [&str; 7] = [
+        "armor", "collar", "glow", "eyes", "overlay", "saddle", "emissive",
+    ];
+    for root in &roots {
+        let dir = root.join(name);
+        if let Some(p) = pngs(&dir).into_iter().find(|p| {
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            !OVERLAYS.iter().any(|o| stem.contains(o))
+        }) {
+            return sprite(&p);
         }
     }
     None
