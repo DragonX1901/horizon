@@ -155,6 +155,9 @@ Mod blocks the 1.21.1 client draws in code, made drawable when the mods are carr
 - **Model loaders** (`horizon-port-pack/src/model_loaders.rs`): `neoforge:composite` merges its
   children, `neoforge:separate_transforms` keeps its base, a mod's own loader that names its model
   uses it, `neoforge:obj` meshes become flat elements turned into place.
+- **Belts**: Create's belt blockstate becomes the multipart its BeltRenderer picks in code
+  (`belt/start|middle|end` and their `_bottom`, `belt/diagonal_*` on slopes, turned by facing).
+  The surface doesn't scroll, and sideways belts are not covered.
 - **Signs and chests** (`tools/neoforge_bridge/mod_entity_blocks.py`, needs `--client-dir`): sign
   textures are laid out as 26.3 lays them out, learnt pixel by pixel from vanilla's own woods;
   chest textures are copied to `<ns>:entity/chest/<block>`.
@@ -174,7 +177,7 @@ runs while the game loads), 59 s after a game update (the content is rebuilt).
 
 Gaps:
 - **Java-only rendering:** Create's moving parts other than shafts (a press's head, a belt's
-  surface, a gearbox's four outputs), other block entity renderers,
+  scrolling surface, a gearbox's four outputs), other block entity renderers,
   other models built in code, and what
   mods' screens draw in code (progress, buttons); menus of items (not blocks) have no layout.
 - Particles move as a poof does, whatever their mod's code does.

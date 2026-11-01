@@ -177,6 +177,55 @@ def chests(mod, ns):
     return count
 
 
+# Create's belt (and its addons' belts, which reuse create:block/belt/*): BeltRenderer picks a
+# partial model per segment in code, and the blockstate names only a particle. These are its
+# choices, as a multipart blockstate: by part and slope, turned by facing.
+FACING_Y = {"south": 0, "west": 90, "north": 180, "east": 270}  # AngleHelper.horizontalAngle
+
+
+def belt_blockstate(prefix):
+    """BeltRenderer.renderBelt's partials as multipart entries (no scrolling, no sideways)."""
+    parts = []
+    for facing, angle in FACING_Y.items():
+        for slope in ["horizontal", "upward", "downward", "vertical"]:
+            for part in ["start", "middle", "end", "pulley"]:
+                start, end = part == "start", part == "end"
+                if slope == "downward":
+                    start, end = end, start
+                diagonal = slope in ("upward", "downward")
+                which = "start" if start else "end" if end else "middle"
+                turn = angle + (180 if slope == "upward" else 0)
+                # Create turns counter-clockwise; blockstates turn clockwise.
+                y = (360 - turn) % 360
+                x = 90 if slope == "vertical" else 0
+                when = {"facing": facing, "slope": slope, "part": part}
+                models = [f"{prefix}diagonal_{which}"] if diagonal else [f"{prefix}{which}", f"{prefix}{which}_bottom"]
+                for model in models:
+                    apply = {"model": model}
+                    if y:
+                        apply["y"] = y
+                    if x:
+                        apply["x"] = x
+                    parts.append({"when": when, "apply": apply})
+    return {"multipart": parts}
+
+
+def belts(mod, ns):
+    """Belt blocks (a `slope` and `part` property, Create's partials under block/belt/)."""
+    count = 0
+    states = mod / "assets" / ns / "blockstates"
+    for file in sorted(states.glob("*belt.json")) if states.is_dir() else []:
+        text = file.read_text()
+        if '"slope=' not in text and "slope" not in text:
+            continue
+        prefix = "create:block/belt/"
+        if not any((m / "assets/create/models/block/belt/middle.json").exists() for m in mod.parent.iterdir()):
+            continue
+        file.write_text(json.dumps(belt_blockstate(prefix)))
+        count += 1
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--client-jar", type=Path, required=True, help="Minecraft 1.21.1's client jar")
@@ -189,9 +238,9 @@ def main():
     for mod in sorted(p for p in args.mods_dir.iterdir() if (p / "assets").is_dir()):
         for ns_dir in sorted((mod / "assets").iterdir()):
             ns = ns_dir.name
-            s, c = signs(mod, ns, args.client_jar, args.resources, maps), chests(mod, ns)
-            if s or c:
-                print(f"{mod.name}: {s} signs, {c} chests")
+            s, c, b = signs(mod, ns, args.client_jar, args.resources, maps), chests(mod, ns), belts(mod, ns)
+            if s or c or b:
+                print(f"{mod.name}: {s} signs, {c} chests, {b} belts")
 
 
 if __name__ == "__main__":
