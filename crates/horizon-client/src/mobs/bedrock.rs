@@ -22,7 +22,29 @@ pub fn load(root: &Path, id: &str) -> Option<(Part, Option<String>)> {
     let geo = ["geo", "geo/entity", "geo/entities", "geo/mob"]
         .iter()
         .map(|dir| assets.join(dir).join(format!("{name}.geo.json")))
-        .find(|p| p.exists());
+        .find(|p| p.exists())
+        // Its first numbered variant (Mowzie's geo/boulder_1.geo.json for `boulder`).
+        .or_else(|| {
+            let mut found: Vec<_> = ["geo", "geo/entity", "geo/entities", "geo/mob"]
+                .iter()
+                .flat_map(|dir| {
+                    std::fs::read_dir(assets.join(dir))
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                })
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                        n.strip_prefix(&format!("{name}_"))
+                            .and_then(|r| r.strip_suffix(".geo.json"))
+                            .is_some_and(|r| r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty())
+                    })
+                })
+                .collect();
+            found.sort();
+            found.into_iter().next()
+        });
     let model = match geo {
         Some(geo) => parse(&serde_json::from_slice(&std::fs::read(&geo).ok()?).ok()?)?,
         // Models the mod builds in Java, baked by tools/neoforge_bridge/export_mod_models.py.

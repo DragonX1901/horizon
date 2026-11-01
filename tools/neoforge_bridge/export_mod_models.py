@@ -158,12 +158,23 @@ def main():
         # Mobs drawn with a vanilla model (FlyingCowRenderer and CowModel): the game draws them
         # as that vanilla mob, in their own texture.
         for cls, model in renderers.items():
-            if cls not in classes_in or not model.startswith("net.minecraft.client.model."):
+            if cls not in classes_in:
                 continue
             name = snake(re.sub(r"Renderer$", "", cls.rsplit(".", 1)[-1].split("$")[-1]))
-            vanilla = snake(re.sub(r"Model$", "", model.rsplit(".", 1)[-1]))
-            if name in entities and name not in models and vanilla:
-                models[name] = {"vanilla": f"minecraft:{vanilla}"}
+            if name not in entities or name in models:
+                continue
+            # A mod model class with a baked layer (ValkyrieQueenRenderer draws ValkyrieModel),
+            # its own or its parent's.
+            seen, owner = set(), model
+            while owner and owner not in by_class and owner not in seen:
+                seen.add(owner)
+                owner = supers.get(owner)
+            if owner in by_class:
+                models[name] = prune(json.loads(json.dumps(by_class[owner])))
+            elif model.startswith("net.minecraft.client.model."):
+                vanilla = snake(re.sub(r"Model$", "", model.rsplit(".", 1)[-1]))
+                if vanilla:
+                    models[name] = {"vanilla": f"minecraft:{vanilla}"}
         target = args.home / "horizon-mods" / mod_id
         if not models or not target.exists():
             continue
