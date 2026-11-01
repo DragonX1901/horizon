@@ -134,6 +134,8 @@ pub struct Context {
     pub modded_entities: Vec<horizon_protocol::modded::ModdedEntity>,
     /// The client's `minecraft:experience_orb` entity type.
     pub experience_orb: Option<i32>,
+    /// The client's falling block type, whose spawn data is a block state.
+    pub falling_block: Option<i32>,
 }
 
 pub struct Play {
@@ -357,6 +359,12 @@ impl Play {
                 let position = [r.f64()?, r.f64()?, r.f64()?];
                 let (pitch, yaw, head_yaw) = (r.i8()?, r.i8()?, r.i8()?);
                 let data = r.varint()?;
+                // A falling block's data is its block state, in the server's ids.
+                let data = if Some(kind) == self.ctx.falling_block {
+                    self.ctx.states.map(data)
+                } else {
+                    data
+                };
                 let velocity = [velocity(r.i16()?), velocity(r.i16()?), velocity(r.i16()?)];
                 C777::AddEntity(p777::AddEntity {
                     id,

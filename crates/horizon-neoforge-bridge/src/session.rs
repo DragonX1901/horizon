@@ -639,6 +639,11 @@ fn configuration(
                         "[bridge] {player}: {} mod entity types announced",
                         ctx.modded_entities.len()
                     );
+                    if std::env::var_os("HORIZON_BRIDGE_DEBUG").is_some() {
+                        for e in &ctx.modded_entities {
+                            eprintln!("[bridge] entity {} base {:?}", e.name, e.base);
+                        }
+                    }
                     if !ctx.modded_entities.is_empty() {
                         let data = horizon_protocol::modded::write(&ctx.modded_entities);
                         client_writer.send(&packet(
@@ -755,6 +760,20 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
             if let Some((_, width, height, eye_height, base)) =
                 state.facts.entity_types.iter().find(|t| t.0 == *name)
             {
+                // Built on a vanilla entity that isn't a mob (a boat, an arrow, a falling block,
+                // an item frame): sent as that entity, which the game draws and moves itself.
+                let vanilla = match base.as_str() {
+                    // 1.21.1's boats, named per wood in 26.3.
+                    "minecraft:boat" => "minecraft:oak_boat",
+                    "minecraft:chest_boat" => "minecraft:oak_chest_boat",
+                    b => b,
+                };
+                if NON_LIVING.contains(&vanilla)
+                    && let Some(client) = client_id("minecraft:entity_type", vanilla)
+                {
+                    entity_types.insert(id, client);
+                    continue;
+                }
                 entity_types.insert(id, next);
                 modded_entities.push(horizon_protocol::modded::ModdedEntity {
                     id: next,
@@ -841,6 +860,7 @@ fn play_context(state: &Configuration, resources: &std::path::Path) -> Option<Co
             .unwrap_or_default(),
         placeholder_item: client_id("minecraft:item", "minecraft:barrier").unwrap_or(0),
         experience_orb: client_id("minecraft:entity_type", "minecraft:experience_orb"),
+        falling_block: client_id("minecraft:entity_type", "minecraft:falling_block"),
     })
 }
 
@@ -861,6 +881,42 @@ fn play_loop(
         }
     }
 }
+
+/// Vanilla entities that aren't mobs: a mod's entity built on one is shown as it.
+const NON_LIVING: &[&str] = &[
+    "minecraft:oak_boat",
+    "minecraft:oak_chest_boat",
+    "minecraft:arrow",
+    "minecraft:spectral_arrow",
+    "minecraft:trident",
+    "minecraft:snowball",
+    "minecraft:egg",
+    "minecraft:ender_pearl",
+    "minecraft:potion",
+    "minecraft:experience_bottle",
+    "minecraft:fireball",
+    "minecraft:small_fireball",
+    "minecraft:wither_skull",
+    "minecraft:llama_spit",
+    "minecraft:shulker_bullet",
+    "minecraft:firework_rocket",
+    "minecraft:fishing_bobber",
+    "minecraft:item",
+    "minecraft:experience_orb",
+    "minecraft:falling_block",
+    "minecraft:tnt",
+    "minecraft:item_frame",
+    "minecraft:glow_item_frame",
+    "minecraft:painting",
+    "minecraft:minecart",
+    "minecraft:chest_minecart",
+    "minecraft:furnace_minecart",
+    "minecraft:hopper_minecart",
+    "minecraft:tnt_minecart",
+    "minecraft:command_block_minecart",
+    "minecraft:spawner_minecart",
+    "minecraft:area_effect_cloud",
+];
 
 /// The mod menus whose layout the content mods carry (`assets/<ns>/horizon/menus.json`, from the
 /// oracle): how many slots of their own each has.
