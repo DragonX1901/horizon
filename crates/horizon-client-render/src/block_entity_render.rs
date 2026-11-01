@@ -1361,8 +1361,15 @@ impl BlockEntityRenderer {
                         ChestPart::Left => "entity/chest/christmas_left",
                         ChestPart::Right => "entity/chest/christmas_right",
                     }
-                } else {
+                } else if scene.sprites.contains_key(*texture) {
                     *texture
+                } else {
+                    // A mod chest whose texture wasn't found: vanilla's, not the missing sprite.
+                    match part {
+                        ChestPart::Single => "entity/chest/normal",
+                        ChestPart::Left => "entity/chest/normal_left",
+                        ChestPart::Right => "entity/chest/normal_right",
+                    }
                 };
                 let model = match part {
                     ChestPart::Single => "chest",

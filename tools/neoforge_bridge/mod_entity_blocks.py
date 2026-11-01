@@ -170,7 +170,8 @@ def chests(mod, ns):
     for file in sorted(states.glob("*chest.json")) if states.is_dir() else []:
         name = file.stem
         trapped = "trapped" in name
-        wood = name.replace("trapped_", "").replace("_chest", "")
+        # Loot variants (Quark's lootr_acacia_chest) use the plain chest's textures.
+        wood = name.replace("trapped_", "").replace("lootr_", "").replace("_chest", "")
         want = words(wood)
         found = {}
         for part, stems in [("", ["trap" if trapped else "normal", wood]), ("_left", ["trap_left" if trapped else "left", f"{wood}_left"]),
